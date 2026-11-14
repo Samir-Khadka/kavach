@@ -20,7 +20,23 @@ A02 = "A02:2021 Cryptographic Failures"
 A03 = "A03:2021 Injection"
 A05 = "A05:2021 Security Misconfiguration"
 
-# Error phrases a database actually prints when a query breaks. Bare
+# Every rule id a check can produce. Used by the verify command to
+# reject a typo'd rule name instead of scanning for something that
+# can never appear. ("unreachable" is produced by the scanner, not a
+# check, so it is added in kavach.verify.)
+KNOWN_RULES = frozenset({
+    "http_not_https", "https_downgrade", "tls_old", "cert_invalid",
+    "tls_check_failed",
+    "missing_hsts", "hsts_weak", "missing_csp", "csp_weak",
+    "missing_x_frame_options", "missing_x_content_type_options",
+    "missing_referrer_policy", "missing_permissions_policy",
+    "server_header", "x_powered_by", "cors_wildcard",
+    "cookie_no_secure", "cookie_no_httponly", "cookie_no_samesite",
+    "git_exposed", "env_exposed", "backup_file_exposed",
+    "ds_store_exposed", "wp_config_exposed",
+    "sqli_error", "xss_reflected", "open_redirect", "mixed_content",
+    "robots_sensitive", "missing_security_txt",
+})
 # database names ("PostgreSQL", "MySQL", "SQLite") are NOT here on
 # purpose: a page that merely mentions a database as a skill or a
 # project would false-positive (caught by the portfolio crawl, v0.3).

@@ -1,7 +1,8 @@
 """Demo: scan the deliberately vulnerable site, the hardened one, and
 the mixed one (HTTPS but with mixed content + an open redirect), crawl
 the vulnerable site, scan the authenticated dashboard (demo/demo123),
-and print the graded reports (EN, then NE for the vulnerable one).
+verify two rules, and print the graded reports (EN, then NE for the
+vulnerable one).
 
 Run: python demo.py
 """
@@ -11,6 +12,7 @@ from kavach.auth import login
 from kavach.demo_server import serve_all
 from kavach.report import to_text
 from kavach.scanner import scan
+from kavach.verify import verify
 
 
 def main() -> None:
@@ -31,6 +33,14 @@ def main() -> None:
                            auth_check="Welcome, demo")
         print(to_text(scan(vuln_url + "dashboard", session=session,
                            max_pages=2)))
+        print("== Verify: missing_hsts on the vulnerable site ==")
+        v = verify(vuln_url, "missing_hsts")
+        print("FIXED" if v.fixed else
+              f"STILL PRESENT on {len(v.pages)} page(s)")
+        print("== Verify: missing_hsts on the hardened site ==")
+        v = verify(secure_url, "missing_hsts", verify_tls=False)
+        print("FIXED" if v.fixed else
+              f"STILL PRESENT on {len(v.pages)} page(s)")
         print("== Vulnerable demo site (Nepali) ==")
         print(to_text(scan(vuln_url, lang="ne")))
     finally:

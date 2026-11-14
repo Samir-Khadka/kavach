@@ -97,6 +97,22 @@ A missing header on five pages is one fix; a probe that fires on
 three pages is three. On Samir's portfolio the top three — HSTS, the
 CORS wildcard, CSP — lift it from F 49 to B 80.
 
+## Verify a fix
+
+The loop is prioritise → fix → verify. After fixing a finding, run:
+
+```bash
+python -m kavach verify https://example.com --rule missing_hsts
+```
+
+and get a plain answer: `FIXED`, or `STILL PRESENT` with the pages
+it is still on. `--page URL` restricts the check to one page (the
+finding may be fixed there and present elsewhere); `--max-pages N`
+crawls. Exit 0 = fixed, 1 = still present, 2 = scan failed,
+3 = usage error (no `--rule`, or a rule name Kavach cannot produce —
+a typo is rejected up front instead of scanning for something that
+can never appear). `--json` prints the result as JSON.
+
 ## Crawling
 
 By default Kavach scans one page. With `--max-pages N` it follows
