@@ -87,6 +87,16 @@ def scan_main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", help="write the report to a file")
     parser.add_argument("--html", help="write an HTML report to a file")
     parser.add_argument("--badge", help="write an SVG grade badge to a file")
+    parser.add_argument("--email", action="store_true",
+                        help="email the report when it matters "
+                             "(SMTP settings from KAVACH_SMTP_* env vars)")
+    parser.add_argument("--notify-on", default="drop",
+                        choices=("drop", "change", "always"),
+                        help="when --email sends: drop (grade or score "
+                             "fell, default), change (any difference), "
+                             "always")
+    parser.add_argument("--email-to",
+                        help="recipient (default: KAVACH_NOTIFY_TO)")
     _add_common(parser)
     args = parser.parse_args(argv)
     try:
@@ -114,11 +124,43 @@ def scan_main(argv: list[str] | None = None) -> int:
         with open(args.output, "w", encoding="utf-8") as f:
             f.write(text)
     print(text, end="" if args.output else "\n")
+    if args.email:
+        _maybe_email(result, args)
     if result.grade in ("A", "B"):
         return 0
     if result.grade in ("C", "D"):
         return 1
     return 2
+
+
+def _maybe_email(result, args) -> None:
+    """Send the report if the notify mode says so. A failed send is
+    reported on stderr and never changes the scan's exit code."""
+    from .notify import build_message, config_from_env, send_message, \
+        should_notify
+    if args.no_history and args.notify_on != "always":
+        print("kavach: --email with --no-history has no previous scan "
+              "to compare with, so drop/change will not send",
+              file=sys.stderr)
+    config = config_from_env()
+    if config is None:
+        print("kavach: --email needs KAVACH_SMTP_HOST and "
+              "KAVACH_NOTIFY_TO (see README)", file=sys.stderr)
+        return
+    if args.email_to:
+        config["to_addr"] = args.email_to
+    if not should_notify(result, args.notify_on):
+        return
+    try:
+        send_message(build_message(result, config["to_addr"],
+                                   config["from_addr"]),
+                     config["host"], config["port"], config["user"],
+                     config["password"])
+        print(f"kavach: report emailed to {config['to_addr']}",
+              file=sys.stderr)
+    except Exception as e:
+        print(f"kavach: could not send the report email — {e}",
+              file=sys.stderr)
 
 
 def verify_main(argv: list[str] | None = None) -> int:

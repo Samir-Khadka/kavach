@@ -113,6 +113,41 @@ crawls. Exit 0 = fixed, 1 = still present, 2 = scan failed,
 a typo is rejected up front instead of scanning for something that
 can never appear). `--json` prints the result as JSON.
 
+## Scheduled report email
+
+A scan on a schedule is only useful if someone reads it. `--email`
+sends the report when it matters — by default only when the grade or
+score fell since the last scan of that URL:
+
+```bash
+python -m kavach https://example.com --max-pages 5 --email
+```
+
+`--notify-on change` also emails on any difference (new or fixed
+findings); `--notify-on always` emails every run. The email is the
+full report — findings, fix priorities, and the diff — as plain text
+with an HTML version alongside.
+
+SMTP settings come from the environment only, so a password never
+lands in a shell history or a log:
+
+```bash
+export KAVACH_SMTP_HOST=smtp.gmail.com   # port 587 by default, 465 = TLS
+export KAVACH_SMTP_USER=you@gmail.com
+export KAVACH_SMTP_PASS=xxxx xxxx xxxx xxxx   # a Gmail app password,
+                                               # not the account password
+export KAVACH_NOTIFY_TO=you@example.com
+```
+
+For Gmail: Google account → Security → 2-Step Verification →
+App passwords → generate one for "Mail". The weekly GitHub Action
+already has an email step that runs when the same values are set as
+repo secrets (`KAVACH_SMTP_HOST`, `KAVACH_SMTP_PORT`,
+`KAVACH_SMTP_USER`, `KAVACH_SMTP_PASS`, `KAVACH_NOTIFY_TO`), and it
+keeps the scan history between runs with the Actions cache so the
+drop detection works. A failed send is reported on stderr and never
+changes the scan's exit code.
+
 ## Crawling
 
 By default Kavach scans one page. With `--max-pages N` it follows

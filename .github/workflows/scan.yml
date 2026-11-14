@@ -17,12 +17,36 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # Keep the scan history between runs, so --email can tell when
+      # the grade dropped. Each run restores the latest history and
+      # saves a new one (the key is unique per run).
+      - uses: actions/cache@v4
+        with:
+          path: ~/.kavach/history
+          key: kavach-history-${{ github.run_id }}
+          restore-keys: |
+            kavach-history-
       - name: Scan the portfolio
         run: |
           python -m kavach https://samir-khadka.com.np --json \
             --max-pages 5 --output kavach-report.json || true
           python -m kavach https://samir-khadka.com.np --max-pages 5 \
             --html kavach-report.html --badge kavach-badge.svg || true
+      # Email the report when the grade dropped — only when the SMTP
+      # secrets are set (repo Settings → Secrets → Actions):
+      # KAVACH_SMTP_HOST, KAVACH_SMTP_PORT, KAVACH_SMTP_USER,
+      # KAVACH_SMTP_PASS (a Gmail app password), KAVACH_NOTIFY_TO.
+      - name: Email the report if the grade dropped
+        if: secrets.KAVACH_SMTP_HOST != ''
+        env:
+          KAVACH_SMTP_HOST: ${{ secrets.KAVACH_SMTP_HOST }}
+          KAVACH_SMTP_PORT: ${{ secrets.KAVACH_SMTP_PORT }}
+          KAVACH_SMTP_USER: ${{ secrets.KAVACH_SMTP_USER }}
+          KAVACH_SMTP_PASS: ${{ secrets.KAVACH_SMTP_PASS }}
+          KAVACH_NOTIFY_TO: ${{ secrets.KAVACH_NOTIFY_TO }}
+        run: |
+          python -m kavach https://samir-khadka.com.np --max-pages 5 \
+            --email || true
       - uses: actions/upload-artifact@v4
         with:
           name: kavach-report
