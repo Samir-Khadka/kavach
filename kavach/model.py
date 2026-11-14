@@ -16,6 +16,7 @@ class Finding:
     fix: str
     evidence: str = ""
     owasp: str = ""
+    page: str = ""  # the page the finding was found on ("" = seed page)
     details: dict = field(default_factory=dict)
 
 
@@ -30,6 +31,7 @@ class ScanResult:
     duration_s: float
     lang: str = "en"
     disclaimer: str = ""
+    pages: list[str] = field(default_factory=list)  # every page scanned
 
     @property
     def counts(self) -> dict[str, int]:

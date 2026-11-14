@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from .report import to_dict
 from .scanner import scan
 
-app = FastAPI(title="Kavach", version="0.2.0",
+app = FastAPI(title="Kavach", version="0.3.0",
               description="Web security scanner — only scan sites you own "
                           "or have explicit permission to test.")
 
@@ -19,6 +19,7 @@ app = FastAPI(title="Kavach", version="0.2.0",
 class ScanRequest(BaseModel):
     url: str = Field(..., examples=["https://example.com"])
     lang: str = Field("en", pattern="^(en|ne)$")
+    max_pages: int = Field(1, ge=1, le=20)
 
 
 class ScanResponse(BaseModel):
@@ -29,6 +30,7 @@ class ScanResponse(BaseModel):
     requests_made: int
     duration_s: float
     counts: dict
+    pages: list
     findings: list
     disclaimer: str
 
@@ -40,4 +42,5 @@ def health() -> dict:
 
 @app.post("/scan", response_model=ScanResponse)
 def scan_endpoint(req: ScanRequest) -> dict:
-    return to_dict(scan(req.url, lang=req.lang))
+    return to_dict(scan(req.url, lang=req.lang,
+                       max_pages=req.max_pages))

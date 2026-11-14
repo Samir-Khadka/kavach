@@ -169,6 +169,50 @@ class DemoHandler(BaseHTTPRequestHandler):
                 self._send(404, b"Not found", headers)
             return
 
+        # /about: same site, but this page DOES send X-Frame-Options —
+        # so a crawl sees a page-specific difference. It mentions
+        # MySQL and SQLite as text but never reflects input or returns
+        # a database error, so the SQLi/XSS probes must stay silent
+        # here (regression test for the false-positive fix).
+        if path == "/about":
+            about_headers = headers
+            if not any(k.lower() == "x-frame-options"
+                       for k, _ in headers):
+                about_headers = headers + [("X-Frame-Options", "DENY")]
+            body = ("<html><body><h1>About</h1>"
+                    "<p>Built with Python, MySQL and SQLite.</p>"
+                    "<p><a href=\"/\">Home</a></p></body></html>")
+            self._send(200, body.encode(),
+                       about_headers + [("Set-Cookie", cookie)])
+            return
+
+        # /login: a form page, same vulnerable headers as home.
+        # Reflects input and answers a quote with a database error.
+        if path == "/login":
+            params_list = parse_qsl(parts.query, keep_blank_values=True)
+            ident = params.get("id")
+            if variant == "vulnerable" and ident is not None \
+                    and "'" in ident:
+                body = ("<html><body><h1>Error</h1><p>You have an error "
+                        "in your SQL syntax near ''' at line 1</p>"
+                        "</body></html>")
+                self._send(200, body.encode(), headers)
+                return
+            reflected = ""
+            if params_list:
+                reflected = params_list[0][1]
+                if secure:
+                    reflected = html.escape(reflected)
+            body = ("<html><body><h1>Login</h1>"
+                    f"<p>Search: {reflected}</p>"
+                    "<form method=\"post\" action=\"/login\">"
+                    "<input name=\"user\"><input type=\"password\" "
+                    "name=\"pass\"></form>"
+                    "<p><a href=\"/\">Home</a></p></body></html>")
+            self._send(200, body.encode(),
+                       headers + [("Set-Cookie", cookie)])
+            return
+
         # home page: reflection + SQL-error simulation. Reflects the
         # first query parameter's value, whatever its name is.
         params_list = parse_qsl(parts.query, keep_blank_values=True)
@@ -187,8 +231,14 @@ class DemoHandler(BaseHTTPRequestHandler):
         if variant == "mixed":
             mixed = ('<script src="http://example.com/tracker.js">'
                      '</script><img src="http://example.com/logo.png">')
+        links = ""
+        if variant == "vulnerable":
+            links = ('<p><a href="/about">About</a> '
+                     '<a href="/login">Login</a></p>')
+        elif variant == "secure":
+            links = '<p><a href="/secure/about">About</a></p>'
         body = (f"<html><body><h1>Kavach demo</h1>{mixed}"
-                f"<p>Search: {reflected}</p></body></html>")
+                f"<p>Search: {reflected}</p>{links}</body></html>")
         self._send(200, body.encode(),
                    headers + [("Set-Cookie", cookie)])
         return

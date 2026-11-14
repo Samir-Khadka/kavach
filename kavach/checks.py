@@ -20,12 +20,20 @@ A02 = "A02:2021 Cryptographic Failures"
 A03 = "A03:2021 Injection"
 A05 = "A05:2021 Security Misconfiguration"
 
+# Error phrases a database actually prints when a query breaks. Bare
+# database names ("PostgreSQL", "MySQL", "SQLite") are NOT here on
+# purpose: a page that merely mentions a database as a skill or a
+# project would false-positive (caught by the portfolio crawl, v0.3).
 SQL_ERROR_SIGNS = (
-    "SQL syntax", "mysql_fetch", "mysql_num_rows", "Warning: mysql",
-    "ORA-01756", "ORA-00933", "ORA-00936", "PostgreSQL", "pg_query",
-    "sqlite3.OperationalError", "Unclosed quotation mark", "SQLSTATE",
-    "Microsoft OLE DB", "ODBC SQL Server Driver", "syntax error at or near",
     "You have an error in your SQL syntax",
+    "Warning: mysql", "mysql_fetch", "mysql_num_rows",
+    "supplied argument is not a valid mysql",
+    "ORA-01756", "ORA-00933", "ORA-00936",
+    "pg_query", "syntax error at or near",
+    "sqlite3.OperationalError",
+    "Unclosed quotation mark", "quoted string not properly terminated",
+    "incorrect syntax near", "SQLSTATE",
+    "Microsoft OLE DB", "ODBC SQL Server Driver",
 )
 
 SENSITIVE_FILES = (

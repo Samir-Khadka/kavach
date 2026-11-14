@@ -35,6 +35,7 @@ run found nothing — the report says so on every run.
 python -m kavach https://example.com
 python -m kavach https://example.com --lang ne --json --output report.json
 python -m kavach https://example.com --html report.html --badge grade.svg
+python -m kavach https://example.com --max-pages 5   # crawl up to 5 pages
 
 # exit codes: 0 = A/B, 1 = C/D, 2 = F, 3 = bad URL / scan failed
 # --insecure skips TLS certificate verification (test environments only)
@@ -51,8 +52,21 @@ curl -X POST localhost:8000/scan -H 'Content-Type: application/json' \
 `python demo.py` scans three local sites: a deliberately vulnerable one
 (grade F, 25 findings), the same site hardened (grade A, no findings),
 and a mixed one — HTTPS and hardened except for mixed content and an
-open redirect (grade C) — then repeats the vulnerable scan in Nepali.
-The demo server is local only — never point it at the public internet.
+open redirect (grade C) — then crawls the vulnerable site (3 pages, 52
+findings) and repeats the single-page scan in Nepali. The demo server
+is local only — never point it at the public internet.
+
+## Crawling
+
+By default Kavach scans one page. With `--max-pages N` it follows
+same-origin links breadth-first, up to N pages (max 20), and runs the
+per-page checks on each: headers, cookies, mixed content, and the three
+probes. Site-wide checks (TLS, exposed files, robots.txt, security.txt)
+run once. The score counts each distinct issue once — a missing header
+on five pages is one problem, a probe that fires on two pages is two —
+but the report lists every occurrence with its page, so you know
+exactly where each finding lives. A short delay between pages keeps
+the crawl polite.
 
 ## Why this exists
 

@@ -14,11 +14,12 @@ def to_dict(result: ScanResult) -> dict:
         "grade": result.grade,
         "requests_made": result.requests_made,
         "duration_s": result.duration_s,
+        "pages": result.pages,
         "counts": result.counts,
         "findings": [
             {"rule": f.rule, "severity": f.severity, "title": f.title,
              "message": f.message, "fix": f.fix, "evidence": f.evidence,
-             "owasp": f.owasp}
+             "owasp": f.owasp, "page": f.page}
             for f in result.findings],
         "disclaimer": result.disclaimer,
     }
@@ -30,13 +31,19 @@ def to_text(result: ScanResult) -> str:
              f"({result.requests_made} requests, {result.duration_s}s)"]
     if result.final_url != result.url:
         lines.append(f"Final URL: {result.final_url}")
+    if len(result.pages) > 1:
+        lines.append(f"Pages scanned: {len(result.pages)}")
+        for p in result.pages:
+            lines.append(f"  {p}")
     counts = result.counts
     counts_text = ", ".join(
         f"{n} {s}" for s, n in counts.items() if n) or "none"
     lines.append("Findings: " + counts_text)
     for f in result.findings:
         lines.append("")
-        lines.append(f"[{f.severity}] {f.title} ({f.rule})")
+        page_note = f" on {f.page}" if len(result.pages) > 1 and f.page \
+            else ""
+        lines.append(f"[{f.severity}] {f.title} ({f.rule}){page_note}")
         lines.append(f"  {f.message}")
         if f.evidence:
             lines.append(f"  Evidence: {f.evidence}")
@@ -84,12 +91,15 @@ def to_html(result: ScanResult) -> str:
         for f in result.findings:
             if f.severity != severity:
                 continue
+            page_note = (f'<p class="ev">Page: <code>{f.page}</code></p>'
+                         if len(result.pages) > 1 and f.page else '')
             rows.append(
                 f'<section class="finding {severity}">'
                 f'<h3><span class="sev" style="background:'
                 f'{SEVERITY_COLORS[severity]}">{severity}</span> '
                 f'{f.title} <code>{f.rule}</code></h3>'
                 f'<p>{f.message}</p>'
+                + page_note
                 + (f'<p class="ev">Evidence: <code>{f.evidence}</code></p>'
                    if f.evidence else '')
                 + f'<p class="fix">Fix: {f.fix}</p>'
@@ -118,6 +128,9 @@ def to_html(result: ScanResult) -> str:
         f'<div class="grade"><span class="badge" style="background:'
         f'{color}">{result.grade}</span><span>score {result.score}/100<br>'
         f'Findings: {counts_text}<br>{result.requests_made} requests, '
-        f'{result.duration_s}s</span></div>'
+        f'{result.duration_s}s'
+        + (f'<br>Pages scanned: {len(result.pages)}'
+           if len(result.pages) > 1 else '')
+        + '</span></div>'
         + "".join(rows) +
         f'<footer>{result.disclaimer}</footer></body></html>')

@@ -3,6 +3,17 @@
 Grading: start at 100, deduct critical 25, high 15, medium 8, low 3,
 info 0. A 90+, B 80+, C 70+, D 60+, F below 60. A good grade only means
 the checks run found nothing — the report disclaimer says so.
+
+Scoring dedupes by (rule, evidence): a site-wide problem (a missing
+header on every page, one exposed file) counts once, while a per-page
+problem (a probe that fires on one page's input) counts per page.
+The report still lists every occurrence, with its page.
+
+Crawling (max_pages > 1): the seed page gets the full suite, including
+the site-wide checks (TLS, exposed files, robots.txt, security.txt).
+Each further page gets the per-page suite (headers, cookies, mixed
+content, the three probes). Requests are polite: a short delay between
+page fetches, an honest User-Agent, and a hard cap on pages.
 """
 from __future__ import annotations
 
@@ -10,6 +21,7 @@ import time
 from urllib.parse import urlsplit
 
 from . import checks
+from .crawl import extract_links
 from .http import Response, fetch
 from .model import DEDUCTIONS, Finding, ScanResult
 from .ne import DISCLAIMER_NE
@@ -19,7 +31,10 @@ DISCLAIMER_EN = (
     "site is fully secure — it is the result of the checks run."
 )
 
-MAX_REQUESTS = 12
+MAX_REQUESTS_PER_PAGE = 4  # 1 fetch + 3 probes
+DEFAULT_MAX_PAGES = 1
+MAX_PAGES_LIMIT = 20
+DEFAULT_DELAY = 0.2
 
 
 def grade_of(score: int) -> str:
@@ -34,6 +49,19 @@ def grade_of(score: int) -> str:
     return "F"
 
 
+def score_findings(findings: list[Finding]) -> int:
+    """Score from the unique issues: dedupe by (rule, evidence)."""
+    seen: set[tuple[str, str]] = set()
+    total = 0
+    for f in findings:
+        key = (f.rule, f.evidence)
+        if key in seen:
+            continue
+        seen.add(key)
+        total += DEDUCTIONS[f.severity]
+    return max(0, 100 - total)
+
+
 def normalize_url(url: str) -> str:
     url = (url or "").strip()
     if not url:
@@ -46,63 +74,110 @@ def normalize_url(url: str) -> str:
     return url
 
 
-def scan(url: str, lang: str = "en", verify_tls: bool = True) -> ScanResult:
-    """Scan one URL. Never raises for a bad target — an unreachable site
-    comes back as a result with one critical finding. verify_tls=False
-    skips certificate verification (test environments only)."""
-    if lang not in ("en", "ne"):
-        raise ValueError("lang must be 'en' or 'ne'")
-    target = normalize_url(url)
-    started = time.monotonic()
-    requests = 0
+def _tag(findings: list[Finding], page: str) -> list[Finding]:
+    for f in findings:
+        f.page = page
+    return findings
 
-    base = fetch(target, verify_tls=verify_tls)
-    requests += 1
-    if base.status is None:
-        finding = checks._finding(
-            "unreachable", "critical", checks.A05, lang,
-            "Site unreachable",
-            f"The site could not be opened ({base.error}) — check the "
-            "address and the network.",
-            "Check that the address is right and the site is up.",
-            details={"error": base.error}, error=base.error)
-        return ScanResult(url=target, final_url=target, findings=[finding],
-                          score=0, grade="F", requests_made=requests,
-                          duration_s=round(time.monotonic() - started, 2),
-                          lang=lang,
-                          disclaimer=DISCLAIMER_NE if lang == "ne"
-                          else DISCLAIMER_EN)
 
+def _page_checks(base: Response, lang: str,
+                 verify_tls: bool) -> list[Finding]:
+    """The per-page suite, run on one already-fetched response:
+    headers, cookies, mixed content, and the three probes."""
     findings: list[Finding] = []
-    findings += checks.check_transport(target, base, lang,
-                                       verify_tls=verify_tls)
     findings += checks.check_headers(base, lang)
     findings += checks.check_cookies(base, lang)
     findings += checks.check_mixed_content(base, lang)
-    findings += checks.check_sensitive_files(base.final_url, lang,
-                                             verify_tls=verify_tls)
-    requests += 8
     findings += checks.check_sqli(base.final_url, lang,
                                   verify_tls=verify_tls)
-    requests += 1
     findings += checks.check_xss(base.final_url, lang,
                                  verify_tls=verify_tls)
-    requests += 1
     findings += checks.check_open_redirect(base.final_url, lang,
                                            verify_tls=verify_tls)
+    return findings
+
+
+def scan(url: str, lang: str = "en", verify_tls: bool = True,
+         max_pages: int = DEFAULT_MAX_PAGES,
+         delay: float = DEFAULT_DELAY) -> ScanResult:
+    """Scan one URL (max_pages=1), or crawl up to max_pages same-origin
+    pages. Never raises for a bad target — an unreachable site comes
+    back as a result with one critical finding. verify_tls=False skips
+    certificate verification (test environments only)."""
+    if lang not in ("en", "ne"):
+        raise ValueError("lang must be 'en' or 'ne'")
+    if max_pages < 1 or max_pages > MAX_PAGES_LIMIT:
+        raise ValueError(f"max_pages must be 1–{MAX_PAGES_LIMIT}")
+    target = normalize_url(url)
+    started = time.monotonic()
+    requests = 0
+    disclaimer = DISCLAIMER_NE if lang == "ne" else DISCLAIMER_EN
+
+    seed = fetch(target, verify_tls=verify_tls)
     requests += 1
-    findings += checks.check_robots(base.final_url, lang,
-                                    verify_tls=verify_tls)
+    if seed.status is None:
+        finding = checks._finding(
+            "unreachable", "critical", checks.A05, lang,
+            "Site unreachable",
+            f"The site could not be opened ({seed.error}) — check the "
+            "address and the network.",
+            "Check that the address is right and the site is up.",
+            details={"error": seed.error}, error=seed.error)
+        return ScanResult(url=target, final_url=target, findings=[finding],
+                          score=0, grade="F", requests_made=requests,
+                          duration_s=round(time.monotonic() - started, 2),
+                          lang=lang, disclaimer=disclaimer,
+                          pages=[target])
+
+    findings: list[Finding] = []
+    # site-wide checks, once, on the seed
+    findings += _tag(checks.check_transport(target, seed, lang,
+                                            verify_tls=verify_tls),
+                     seed.final_url)
+    findings += _tag(checks.check_sensitive_files(seed.final_url, lang,
+                                                  verify_tls=verify_tls),
+                     seed.final_url)
+    requests += 8
+    findings += _tag(checks.check_robots(seed.final_url, lang,
+                                         verify_tls=verify_tls),
+                     seed.final_url)
     requests += 1
-    findings += checks.check_security_txt(base.final_url, lang,
-                                          verify_tls=verify_tls)
+    findings += _tag(checks.check_security_txt(seed.final_url, lang,
+                                               verify_tls=verify_tls),
+                     seed.final_url)
     requests += 1
 
-    score = max(0, 100 - sum(DEDUCTIONS[f.severity] for f in findings))
-    return ScanResult(url=target, final_url=base.final_url,
+    # per-page checks, breadth-first from the seed
+    pages: list[str] = []
+    queue = [seed.final_url]
+    queued = {seed.final_url}
+    while queue and len(pages) < max_pages:
+        page_url = queue.pop(0)
+        if page_url == seed.final_url:
+            base = seed
+            page_findings = _page_checks(base, lang, verify_tls)
+            requests += 3  # the three probes (the fetch is counted above)
+        else:
+            if delay:
+                time.sleep(delay)
+            base = fetch(page_url, verify_tls=verify_tls)
+            requests += MAX_REQUESTS_PER_PAGE
+            if base.status is None:
+                continue
+            page_findings = _page_checks(base, lang, verify_tls)
+        pages.append(page_url)
+        findings += _tag(page_findings, page_url)
+        if max_pages > 1 and len(pages) < max_pages:
+            for link in extract_links(base.text, page_url):
+                if link not in queued \
+                        and len(pages) + len(queue) < max_pages:
+                    queued.add(link)
+                    queue.append(link)
+
+    score = score_findings(findings)
+    return ScanResult(url=target, final_url=seed.final_url,
                       findings=findings, score=score,
                       grade=grade_of(score), requests_made=requests,
                       duration_s=round(time.monotonic() - started, 2),
-                      lang=lang,
-                      disclaimer=DISCLAIMER_NE if lang == "ne"
-                      else DISCLAIMER_EN)
+                      lang=lang, disclaimer=disclaimer,
+                      pages=pages)

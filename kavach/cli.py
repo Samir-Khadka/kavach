@@ -26,13 +26,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", help="write the report to a file")
     parser.add_argument("--html", help="write an HTML report to a file")
     parser.add_argument("--badge", help="write an SVG grade badge to a file")
+    parser.add_argument("--max-pages", type=int, default=1,
+                        help="crawl up to N same-origin pages "
+                             "(default 1, max 20)")
+    parser.add_argument("--delay", type=float, default=0.2,
+                        help="seconds between page fetches while crawling "
+                             "(default 0.2)")
     parser.add_argument("--insecure", action="store_true",
                         help="skip TLS certificate verification "
                              "(test environments only)")
     args = parser.parse_args(argv)
     try:
         result = scan(args.url, lang=args.lang,
-                      verify_tls=not args.insecure)
+                      verify_tls=not args.insecure,
+                      max_pages=args.max_pages, delay=args.delay)
     except ValueError as e:
         print(f"kavach: {e}", file=sys.stderr)
         return 3

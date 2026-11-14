@@ -20,6 +20,8 @@ def main() -> None:
         print(to_text(scan(secure_url, verify_tls=False)))
         print("== Mixed demo site (English) ==")
         print(to_text(scan(mixed_url, verify_tls=False)))
+        print("== Vulnerable demo site, crawled (3 pages, English) ==")
+        print(to_text(scan(vuln_url, max_pages=3)))
         print("== Vulnerable demo site (Nepali) ==")
         print(to_text(scan(vuln_url, lang="ne")))
     finally:

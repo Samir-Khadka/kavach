@@ -20,8 +20,8 @@ jobs:
       - name: Scan the portfolio
         run: |
           python -m kavach https://samir-khadka.com.np --json \
-            --output kavach-report.json || true
-          python -m kavach https://samir-khadka.com.np \
+            --max-pages 5 --output kavach-report.json || true
+          python -m kavach https://samir-khadka.com.np --max-pages 5 \
             --html kavach-report.html --badge kavach-badge.svg || true
       - uses: actions/upload-artifact@v4
         with:
