@@ -12,6 +12,11 @@ on:
 jobs:
   scan:
     runs-on: ubuntu-latest
+    # The SMTP host as an env var, so the email step can test for it:
+    # the `secrets` context is not available in a step's `if`, but
+    # `env` is.
+    env:
+      KAVACH_SMTP_HOST: ${{ secrets.KAVACH_SMTP_HOST }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -37,7 +42,7 @@ jobs:
       # KAVACH_SMTP_HOST, KAVACH_SMTP_PORT, KAVACH_SMTP_USER,
       # KAVACH_SMTP_PASS (a Gmail app password), KAVACH_NOTIFY_TO.
       - name: Email the report if the grade dropped
-        if: secrets.KAVACH_SMTP_HOST != ''
+        if: env.KAVACH_SMTP_HOST != ''
         env:
           KAVACH_SMTP_HOST: ${{ secrets.KAVACH_SMTP_HOST }}
           KAVACH_SMTP_PORT: ${{ secrets.KAVACH_SMTP_PORT }}
