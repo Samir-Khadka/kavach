@@ -24,7 +24,7 @@ from . import checks
 from .crawl import extract_links
 from .forms import form_submission_urls
 from .http import Response, Session, fetch
-from .model import DEDUCTIONS, Finding, ScanResult
+from .model import DEDUCTIONS, Finding, ScanResult, grade_of
 from .ne import DISCLAIMER_NE
 
 DISCLAIMER_EN = (
@@ -36,18 +36,6 @@ MAX_REQUESTS_PER_PAGE = 4  # 1 fetch + 3 probes
 DEFAULT_MAX_PAGES = 1
 MAX_PAGES_LIMIT = 20
 DEFAULT_DELAY = 0.2
-
-
-def grade_of(score: int) -> str:
-    if score >= 90:
-        return "A"
-    if score >= 80:
-        return "B"
-    if score >= 70:
-        return "C"
-    if score >= 60:
-        return "D"
-    return "F"
 
 
 def score_findings(findings: list[Finding]) -> int:
@@ -200,12 +188,15 @@ def scan(url: str, lang: str = "en", verify_tls: bool = True,
                     queue.append(link)
 
     score = score_findings(findings)
+    from .priorities import prioritise
+    priorities, _total_gain, _raw = prioritise(findings)
     result = ScanResult(url=target, final_url=seed.final_url,
                         findings=findings, score=score,
                         grade=grade_of(score), requests_made=requests,
                         duration_s=round(time.monotonic() - started, 2),
                         lang=lang, disclaimer=disclaimer,
-                        pages=pages, form_pages=form_pages)
+                        pages=pages, form_pages=form_pages,
+                        priorities=priorities)
     if history_dir is not None:
         from .history import diff_results, load_previous, save_scan
         previous = load_previous(history_dir, target)

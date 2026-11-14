@@ -35,6 +35,12 @@ def to_dict(result: ScanResult) -> dict:
         "pages": result.pages,
         "form_pages": result.form_pages,
         "diff": diff,
+        "priorities": [
+            {"rank": p.rank, "rule": p.rule, "severity": p.severity,
+             "gain": p.gain, "pages": p.pages, "fix": p.fix,
+             "cumulative_score": p.cumulative_score,
+             "cumulative_grade": p.cumulative_grade}
+            for p in result.priorities],
         "counts": result.counts,
         "findings": [
             {"rule": f.rule, "severity": f.severity, "title": f.title,
@@ -82,6 +88,21 @@ def to_text(result: ScanResult) -> str:
                              f"({f.rule}){page_note}")
         if not d.has_changes:
             lines.append("  No changes.")
+    if result.priorities:
+        total = sum(p.gain for p in result.priorities)
+        lines.append("")
+        lines.append(f"Fix priority — fixing everything gains "
+                     f"+{total} points "
+                     f"(score {result.score} → 100, grade "
+                     f"{result.grade} → A):")
+        for p in result.priorities:
+            pages_note = (f", {len(p.pages)} page(s)" if len(p.pages) > 1
+                          else "")
+            lines.append(f"  {p.rank}. [{p.severity}] {p.rule} "
+                         f"+{p.gain}{pages_note} → "
+                         f"{p.cumulative_score} "
+                         f"({p.cumulative_grade})")
+            lines.append(f"     Fix: {p.fix}")
     for f in result.findings:
         lines.append("")
         page_note = f" on {f.page}" if len(result.pages) > 1 and f.page \
@@ -150,6 +171,22 @@ def to_html(result: ScanResult) -> str:
             f'<p>Score {d.previous_score} → {result.score} '
             f'({sign}{d.score_change}), {change}</p>'
             f'<ul>{"".join(items)}</ul></section>')
+    prio_html = ""
+    if result.priorities:
+        total = sum(p.gain for p in result.priorities)
+        items = []
+        for p in result.priorities:
+            pages_note = (f', {len(p.pages)} page(s)'
+                          if len(p.pages) > 1 else '')
+            items.append(
+                f'<li><strong>{p.rank}. [{p.severity}] {p.rule}</strong> '
+                f'+{p.gain}{pages_note} → {p.cumulative_score} '
+                f'({p.cumulative_grade})<br>Fix: {p.fix}</li>')
+        prio_html = (
+            f'<section class="diff"><h2>Fix priority</h2>'
+            f'<p>Fixing everything gains +{total} points '
+            f'(score {result.score} → 100, grade {result.grade} → A)</p>'
+            f'<ol>{"".join(items)}</ol></section>')
     rows = []
     order = ("critical", "high", "medium", "low", "info")
     for severity in order:
@@ -198,5 +235,6 @@ def to_html(result: ScanResult) -> str:
            if len(result.pages) > 1 else '')
         + '</span></div>'
         + diff_html
+        + prio_html
         + "".join(rows) +
         f'<footer>{result.disclaimer}</footer></body></html>')

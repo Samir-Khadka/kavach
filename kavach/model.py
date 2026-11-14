@@ -7,6 +7,18 @@ SEVERITIES = ("critical", "high", "medium", "low", "info")
 DEDUCTIONS = {"critical": 25, "high": 15, "medium": 8, "low": 3, "info": 0}
 
 
+def grade_of(score: int) -> str:
+    if score >= 90:
+        return "A"
+    if score >= 80:
+        return "B"
+    if score >= 70:
+        return "C"
+    if score >= 60:
+        return "D"
+    return "F"
+
+
 @dataclass
 class Finding:
     rule: str
@@ -36,6 +48,8 @@ class ScanResult:
     # by submitting a GET form (no link pointed at them)
     diff: object = None  # a history.DiffResult, or None when there is
     # no previous scan to compare with
+    priorities: list = field(default_factory=list)  # ranked fix
+    # actions (priorities.Priority): what to fix first, and the gain
 
     @property
     def counts(self) -> dict[str, int]:

@@ -87,6 +87,16 @@ disappear from the list. `--no-history` skips it; `--history-dir`
 points it somewhere else. The diff is in the text, JSON and HTML
 reports alike.
 
+## Fix priority
+
+A list of findings does not say what to do first. Every report ends
+with a ranked fix list: each rule is one fix action, ordered by the
+score it gains when fixed everywhere, with the fix itself and the
+score and grade you land on after fixing everything up to that rank.
+A missing header on five pages is one fix; a probe that fires on
+three pages is three. On Samir's portfolio the top three — HSTS, the
+CORS wildcard, CSP — lift it from F 49 to B 80.
+
 ## Crawling
 
 By default Kavach scans one page. With `--max-pages N` it follows
