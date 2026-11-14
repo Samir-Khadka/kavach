@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kavach"
+version = "0.1.0"
+description = "Kavach (कवच — 'shield'): a web security scanner that grades a site A–F against OWASP Top 10 basics"
+authors = [{name = "Samir Khadka", email = "samirshirjan890@gmail.com"}]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+api = ["fastapi>=0.110", "uvicorn>=0.29"]
+
+[project.scripts]
+kavach = "kavach.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["kavach*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,28 @@
+name: Weekly security scan
+
+# Scans Samir's own portfolio on every push and every Monday, and keeps
+# the report as an artifact. Non-blocking: it reports, it does not fail
+# the build — fixing a finding is a human decision.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1"
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Scan the portfolio
+        run: |
+          python -m kavach https://samir-khadka.com.np --json \
+            --output kavach-report.json || true
+          python -m kavach https://samir-khadka.com.np || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kavach-report
+          path: kavach-report.json
