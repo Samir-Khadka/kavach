@@ -32,6 +32,8 @@ class ScanResult:
     lang: str = "en"
     disclaimer: str = ""
     pages: list[str] = field(default_factory=list)  # every page scanned
+    form_pages: list[str] = field(default_factory=list)  # pages reached
+    # by submitting a GET form (no link pointed at them)
 
     @property
     def counts(self) -> dict[str, int]:

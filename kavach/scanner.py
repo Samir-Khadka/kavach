@@ -22,6 +22,7 @@ from urllib.parse import urlsplit
 
 from . import checks
 from .crawl import extract_links
+from .forms import form_submission_urls
 from .http import Response, Session, fetch
 from .model import DEDUCTIONS, Finding, ScanResult
 from .ne import DISCLAIMER_NE
@@ -157,8 +158,10 @@ def scan(url: str, lang: str = "en", verify_tls: bool = True,
 
     # per-page checks, breadth-first from the seed
     pages: list[str] = []
+    form_pages: list[str] = []
     queue = [seed.final_url]
     queued = {seed.final_url}
+    from_forms = set()
     while queue and len(pages) < max_pages:
         page_url = queue.pop(0)
         if page_url == seed.final_url:
@@ -177,9 +180,18 @@ def scan(url: str, lang: str = "en", verify_tls: bool = True,
             page_findings = _page_checks(base, lang, verify_tls,
                                          session=session)
         pages.append(page_url)
+        if page_url in from_forms:
+            form_pages.append(page_url)
         findings += _tag(page_findings, page_url)
         if max_pages > 1 and len(pages) < max_pages:
-            for link in extract_links(base.text, page_url):
+            candidates = extract_links(base.text, page_url)
+            # GET forms too: a search box can lead somewhere no link
+            # points to, so its submission is a crawl candidate as well
+            form_urls = form_submission_urls(base.text, page_url)
+            for url in form_urls:
+                from_forms.add(url)
+            candidates = candidates + form_urls
+            for link in candidates:
                 if link not in queued \
                         and len(pages) + len(queue) < max_pages:
                     queued.add(link)
@@ -191,4 +203,4 @@ def scan(url: str, lang: str = "en", verify_tls: bool = True,
                       grade=grade_of(score), requests_made=requests,
                       duration_s=round(time.monotonic() - started, 2),
                       lang=lang, disclaimer=disclaimer,
-                      pages=pages)
+                      pages=pages, form_pages=form_pages)

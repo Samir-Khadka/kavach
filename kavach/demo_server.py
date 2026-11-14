@@ -301,6 +301,26 @@ class DemoHandler(BaseHTTPRequestHandler):
                        headers + [("Set-Cookie", cookie)])
             return
 
+        # /search: the form-only page. No link anywhere points here —
+        # only submitting the home page's search form reaches it. It
+        # reflects the query and answers a quote with a database error.
+        if path == "/search":
+            q = params.get("q", "")
+            if variant == "vulnerable" and "'" in q:
+                body = ("<html><body><h1>Error</h1><p>You have an error "
+                        "in your SQL syntax near ''' at line 1</p>"
+                        "</body></html>")
+                self._send(200, body.encode(), headers)
+                return
+            shown = q if not secure else html.escape(q)
+            home = "/secure/" if variant == "secure" else "/"
+            body = ("<html><body><h1>Search results</h1>"
+                    f"<p>Results for: {shown}</p>"
+                    f"<p><a href=\"{home}\">Home</a></p></body></html>")
+            self._send(200, body.encode(),
+                       headers + [("Set-Cookie", cookie)])
+            return
+
         # home page: reflection + SQL-error simulation. Reflects the
         # first query parameter's value, whatever its name is.
         params_list = parse_qsl(parts.query, keep_blank_values=True)
@@ -322,9 +342,15 @@ class DemoHandler(BaseHTTPRequestHandler):
         links = ""
         if variant == "vulnerable":
             links = ('<p><a href="/about">About</a> '
-                     '<a href="/login">Login</a></p>')
+                     '<a href="/login">Login</a></p>'
+                     '<form method="get" action="/search">'
+                     '<input name="q">'
+                     '<input type="submit" value="Search"></form>')
         elif variant == "secure":
-            links = '<p><a href="/secure/about">About</a></p>'
+            links = ('<p><a href="/secure/about">About</a></p>'
+                     '<form method="get" action="/secure/search">'
+                     '<input name="q">'
+                     '<input type="submit" value="Search"></form>')
         body = (f"<html><body><h1>Kavach demo</h1>{mixed}"
                 f"<p>Search: {reflected}</p>{links}</body></html>")
         self._send(200, body.encode(),

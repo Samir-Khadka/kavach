@@ -56,9 +56,11 @@ curl -X POST localhost:8000/scan -H 'Content-Type: application/json' \
 (grade F, 25 findings), the same site hardened (grade A, no findings),
 and a mixed one — HTTPS and hardened except for mixed content and an
 open redirect (grade C) — then crawls the vulnerable site (3 pages),
-scans its authenticated dashboard (demo/demo123, 2 pages), and repeats
-the single-page scan in Nepali. The demo server is local only — never
-point it at the public internet.
+crawls it again with form submission (4 pages — the search-results page
+is only reachable by submitting the search form), scans its
+authenticated dashboard (demo/demo123, 2 pages), and repeats the
+single-page scan in Nepali. The demo server is local only — never point
+it at the public internet.
 
 ## Authenticated scanning
 
@@ -86,6 +88,13 @@ on five pages is one problem, a probe that fires on two pages is two —
 but the report lists every occurrence with its page, so you know
 exactly where each finding lives. A short delay between pages keeps
 the crawl polite.
+
+The crawl is form-aware: a page's GET forms (search boxes, filters,
+category selectors) are submitted with safe test values, so results
+pages no link points to are scanned too — the report marks those pages
+"(via form)". POST forms are never submitted: they can change state.
+Hidden fields (CSRF tokens) are kept, dropdowns use their first
+option, and at most two forms per page are tried.
 
 ## Why this exists
 

@@ -24,6 +24,8 @@ def main() -> None:
         print(to_text(scan(mixed_url, verify_tls=False)))
         print("== Vulnerable demo site, crawled (3 pages, English) ==")
         print(to_text(scan(vuln_url, max_pages=3)))
+        print("== Vulnerable demo site, form-aware crawl (4 pages) ==")
+        print(to_text(scan(vuln_url, max_pages=4)))
         print("== Authenticated dashboard (demo/demo123, English) ==")
         session, _ = login(vuln_url + "login", "demo", "demo123",
                            auth_check="Welcome, demo")

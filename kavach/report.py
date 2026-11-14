@@ -15,6 +15,7 @@ def to_dict(result: ScanResult) -> dict:
         "requests_made": result.requests_made,
         "duration_s": result.duration_s,
         "pages": result.pages,
+        "form_pages": result.form_pages,
         "counts": result.counts,
         "findings": [
             {"rule": f.rule, "severity": f.severity, "title": f.title,
@@ -34,7 +35,8 @@ def to_text(result: ScanResult) -> str:
     if len(result.pages) > 1:
         lines.append(f"Pages scanned: {len(result.pages)}")
         for p in result.pages:
-            lines.append(f"  {p}")
+            via = " (via form)" if p in result.form_pages else ""
+            lines.append(f"  {p}{via}")
     counts = result.counts
     counts_text = ", ".join(
         f"{n} {s}" for s, n in counts.items() if n) or "none"
