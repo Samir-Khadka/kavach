@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .report import to_json, to_text
+from .report import badge_svg, to_html, to_json, to_text
 from .scanner import scan
 
 
@@ -24,6 +24,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true",
                         help="print the report as JSON")
     parser.add_argument("--output", help="write the report to a file")
+    parser.add_argument("--html", help="write an HTML report to a file")
+    parser.add_argument("--badge", help="write an SVG grade badge to a file")
     parser.add_argument("--insecure", action="store_true",
                         help="skip TLS certificate verification "
                              "(test environments only)")
@@ -34,6 +36,12 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as e:
         print(f"kavach: {e}", file=sys.stderr)
         return 3
+    if args.html:
+        with open(args.html, "w", encoding="utf-8") as f:
+            f.write(to_html(result))
+    if args.badge:
+        with open(args.badge, "w", encoding="utf-8") as f:
+            f.write(badge_svg(result.grade))
     text = to_json(result) if args.json else to_text(result)
     if args.output:
         with open(args.output, "w", encoding="utf-8") as f:

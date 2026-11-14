@@ -94,8 +94,11 @@ def fetch(url: str, timeout: int = TIMEOUT,
 def tls_info(host: str, port: int = 443,
              timeout: int = TIMEOUT, verify_tls: bool = True) -> dict | None:
     """One TLS handshake: version + certificate. Returns None when the
-    TCP/TLS connection itself fails (network), or a dict with either the
-    version/cert or an 'error' describing why verification failed.
+    TCP/TLS connection itself fails (network), or a dict with a 'kind':
+    'ok' (verified), 'cert' (the certificate failed verification — a
+    real finding), or 'handshake' (the TLS handshake itself failed for
+    another reason, e.g. an intercepting proxy — not a certificate
+    problem, so the caller must not report it as one).
     verify_tls=False skips certificate verification (test environments
     only) but still reports the TLS version."""
     ctx = (ssl.create_default_context() if verify_tls
@@ -104,11 +107,14 @@ def tls_info(host: str, port: int = 443,
         with socket.create_connection((host, port), timeout=timeout) as sock:
             with ctx.wrap_socket(sock, server_hostname=host) as ssock:
                 cert = ssock.getpeercert()
-                return {"version": ssock.version(), "cert": cert, "error": ""}
+                return {"kind": "ok", "version": ssock.version(),
+                        "cert": cert, "error": ""}
     except ssl.SSLCertVerificationError as e:
-        return {"version": "", "cert": {}, "error": f"certificate: {e.verify_message}"}
+        return {"kind": "cert", "version": "", "cert": {},
+                "error": f"certificate: {e.verify_message}"}
     except ssl.SSLError as e:
-        return {"version": "", "cert": {}, "error": f"TLS: {e}"}
+        return {"kind": "handshake", "version": "", "cert": {},
+                "error": f"TLS: {e}"}
     except (OSError, ValueError):
         return None
 

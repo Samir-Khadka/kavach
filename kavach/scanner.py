@@ -78,17 +78,24 @@ def scan(url: str, lang: str = "en", verify_tls: bool = True) -> ScanResult:
                                        verify_tls=verify_tls)
     findings += checks.check_headers(base, lang)
     findings += checks.check_cookies(base, lang)
+    findings += checks.check_mixed_content(base, lang)
     findings += checks.check_sensitive_files(base.final_url, lang,
                                              verify_tls=verify_tls)
-    requests += 6
+    requests += 8
     findings += checks.check_sqli(base.final_url, lang,
                                   verify_tls=verify_tls)
     requests += 1
     findings += checks.check_xss(base.final_url, lang,
                                  verify_tls=verify_tls)
     requests += 1
+    findings += checks.check_open_redirect(base.final_url, lang,
+                                           verify_tls=verify_tls)
+    requests += 1
     findings += checks.check_robots(base.final_url, lang,
                                     verify_tls=verify_tls)
+    requests += 1
+    findings += checks.check_security_txt(base.final_url, lang,
+                                          verify_tls=verify_tls)
     requests += 1
 
     score = max(0, 100 - sum(DEDUCTIONS[f.severity] for f in findings))

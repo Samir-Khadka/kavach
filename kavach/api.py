@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from .report import to_dict
 from .scanner import scan
 
-app = FastAPI(title="Kavach", version="0.1.0",
+app = FastAPI(title="Kavach", version="0.2.0",
               description="Web security scanner — only scan sites you own "
                           "or have explicit permission to test.")
 

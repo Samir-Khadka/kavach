@@ -21,8 +21,12 @@ jobs:
         run: |
           python -m kavach https://samir-khadka.com.np --json \
             --output kavach-report.json || true
-          python -m kavach https://samir-khadka.com.np || true
+          python -m kavach https://samir-khadka.com.np \
+            --html kavach-report.html --badge kavach-badge.svg || true
       - uses: actions/upload-artifact@v4
         with:
           name: kavach-report
-          path: kavach-report.json
+          path: |
+            kavach-report.json
+            kavach-report.html
+            kavach-badge.svg

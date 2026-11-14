@@ -14,14 +14,15 @@ library — no dependencies for the scanner itself.
 
 | Area | Checks |
 | --- | --- |
-| Transport | plain HTTP, HTTPS→HTTP downgrade, TLS version (< 1.2), certificate validity |
+| Transport | plain HTTP, HTTPS→HTTP downgrade, TLS version (< 1.2), certificate validity (a failed handshake is reported as an unverified check, never as a bad certificate) |
 | Headers | HSTS, Content-Security-Policy, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy |
 | Disclosure | `Server` and `X-Powered-By` headers |
 | Cookies | missing `Secure`, `HttpOnly`, `SameSite` flags |
 | CORS | `Access-Control-Allow-Origin: *` (worse with credentials) |
-| Exposed files | `/.git/HEAD`, `/.git/config`, `/.env`, `backup.zip`, `db.sql`, `config.php.bak` |
-| Probes | error-based SQL injection, reflected XSS |
-| Info | `robots.txt` listing sensitive paths |
+| Exposed files | `/.git/HEAD`, `/.git/config`, `/.env`, `backup.zip`, `db.sql`, `config.php.bak`, `.DS_Store`, `wp-config.php` |
+| Probes | error-based SQL injection, reflected XSS, open redirect |
+| Content | mixed content (HTTP subresources on an HTTPS page) |
+| Info | `robots.txt` listing sensitive paths, missing `security.txt` (RFC 9116) |
 
 Grading: start at 100, deduct critical 25, high 15, medium 8, low 3.
 A 90+, B 80+, C 70+, D 60+, F below 60. A good grade only means the checks
@@ -33,6 +34,7 @@ run found nothing — the report says so on every run.
 # CLI (no install needed)
 python -m kavach https://example.com
 python -m kavach https://example.com --lang ne --json --output report.json
+python -m kavach https://example.com --html report.html --badge grade.svg
 
 # exit codes: 0 = A/B, 1 = C/D, 2 = F, 3 = bad URL / scan failed
 # --insecure skips TLS certificate verification (test environments only)
@@ -46,10 +48,11 @@ curl -X POST localhost:8000/scan -H 'Content-Type: application/json' \
 
 ## Demo
 
-`python demo.py` scans a deliberately vulnerable local site (grade F,
-21 findings) and the same site hardened (grade A, no findings), then
-repeats the vulnerable scan in Nepali. The demo server is local only —
-never point it at the public internet.
+`python demo.py` scans three local sites: a deliberately vulnerable one
+(grade F, 25 findings), the same site hardened (grade A, no findings),
+and a mixed one — HTTPS and hardened except for mixed content and an
+open redirect (grade C) — then repeats the vulnerable scan in Nepali.
+The demo server is local only — never point it at the public internet.
 
 ## Why this exists
 

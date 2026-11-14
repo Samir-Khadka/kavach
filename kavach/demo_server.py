@@ -45,6 +45,9 @@ GIT_CONFIG = "[core]\n\trepositoryformatversion = 0\n"
 ENV_FILE = "SECRET_KEY=supersecret123\nDB_PASSWORD=hunter2\n"
 DB_SQL = "CREATE TABLE users (id INT, name VARCHAR(50));\nINSERT INTO users VALUES (1, 'admin');\n"
 PHP_BAK = "<?php $db_pass = 'hunter2';\n"
+DS_STORE = b"\x00\x00\x00\x01Bud1" + b"x" * 100
+WP_CONFIG = "<?php define('DB_NAME', 'site');\ndefine('DB_PASSWORD', 'hunter2');\n"
+SECURITY_TXT = "Contact: security@example.com\nExpires: 2027-01-01T00:00:00Z\n"
 
 
 def generate_self_signed_cert(directory: Path) -> tuple[Path, Path]:
@@ -61,7 +64,7 @@ def generate_self_signed_cert(directory: Path) -> tuple[Path, Path]:
 
 
 class DemoHandler(BaseHTTPRequestHandler):
-    secure = False  # set per server instance
+    variant = "vulnerable"  # "vulnerable" | "secure" | "mixed"
 
     def log_message(self, *args):  # keep test output clean
         pass
@@ -70,15 +73,22 @@ class DemoHandler(BaseHTTPRequestHandler):
         self.send_response_only(code, message)
 
     def _send(self, status: int, body: bytes,
-              headers: list[tuple[str, str]], ctype: str = "text/html"):
+              headers: list[tuple[str, str]], ctype: str = "text/html",
+              extra: list[tuple[str, str]] | None = None):
         self.send_response(status)
         for k, v in headers:
+            self.send_header(k, v)
+        for k, v in (extra or []):
             self.send_header(k, v)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(body)
+
+    @property
+    def secure(self) -> bool:
+        return self.variant in ("secure", "mixed")
 
     def _headers(self):
         return SECURE_HEADERS if self.secure else VULN_HEADERS
@@ -97,12 +107,28 @@ class DemoHandler(BaseHTTPRequestHandler):
     def _handle(self):
         parts = urlsplit(self.path)
         path = parts.path
-        secure = self.secure or path.startswith("/secure")
+        variant = self.variant
         if path.startswith("/secure"):
             path = path[len("/secure"):] or "/"
+            variant = "secure"
+        if path.startswith("/mixed"):
+            path = path[len("/mixed"):] or "/"
+            variant = "mixed"
+        secure = variant in ("secure", "mixed")
         params = dict(parse_qsl(parts.query, keep_blank_values=True))
-        headers = self._headers()
+        headers = SECURE_HEADERS if secure else VULN_HEADERS
         cookie = self._cookie()
+
+        # open redirect (vulnerable + mixed only): a `next` parameter
+        # pointing at an external URL is followed without question.
+        nxt = params.get("next")
+        if variant in ("vulnerable", "mixed") and nxt and (
+                nxt.startswith("http://") or nxt.startswith("https://")):
+            self.send_response(302)
+            self.send_header("Location", nxt)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
 
         sensitive = {
             "/.git/HEAD": (GIT_HEAD, "text/plain"),
@@ -111,9 +137,15 @@ class DemoHandler(BaseHTTPRequestHandler):
             "/backup.zip": ("PK\x03\x04" + "x" * 200, "application/zip"),
             "/db.sql": (DB_SQL, "text/plain"),
             "/config.php.bak": (PHP_BAK, "text/plain"),
+            "/.DS_Store": (DS_STORE, "application/octet-stream"),
+            "/wp-config.php": (WP_CONFIG, "text/plain"),
         }
         if path in sensitive:
-            if secure:
+            if secure and variant == "secure":
+                self._send(404, b"Not found", headers)
+            elif secure and variant == "mixed":
+                # the mixed site is hardened except for mixed content
+                # and the open redirect — its files stay hidden
                 self._send(404, b"Not found", headers)
             else:
                 body, ctype = sensitive[path]
@@ -129,11 +161,19 @@ class DemoHandler(BaseHTTPRequestHandler):
             self._send(200, body.encode(), headers, "text/plain")
             return
 
+        if path == "/.well-known/security.txt":
+            if variant == "secure":
+                self._send(200, SECURITY_TXT.encode(), headers,
+                           "text/plain")
+            else:
+                self._send(404, b"Not found", headers)
+            return
+
         # home page: reflection + SQL-error simulation. Reflects the
         # first query parameter's value, whatever its name is.
         params_list = parse_qsl(parts.query, keep_blank_values=True)
         ident = params.get("id")
-        if not secure and ident is not None and "'" in ident:
+        if variant == "vulnerable" and ident is not None and "'" in ident:
             body = ("<html><body><h1>Error</h1><p>You have an error in "
                     "your SQL syntax near ''' at line 1</p></body></html>")
             self._send(200, body.encode(), headers)
@@ -143,58 +183,71 @@ class DemoHandler(BaseHTTPRequestHandler):
             reflected = params_list[0][1]
             if secure:
                 reflected = html.escape(reflected)
-        body = (f"<html><body><h1>Kavach demo</h1>"
+        mixed = ""
+        if variant == "mixed":
+            mixed = ('<script src="http://example.com/tracker.js">'
+                     '</script><img src="http://example.com/logo.png">')
+        body = (f"<html><body><h1>Kavach demo</h1>{mixed}"
                 f"<p>Search: {reflected}</p></body></html>")
         self._send(200, body.encode(),
                    headers + [("Set-Cookie", cookie)])
         return
 
 
-def make_server(port: int = 0, secure: bool = False,
+def make_server(port: int = 0, variant: str = "vulnerable",
                 certfile: str | None = None,
                 keyfile: str | None = None) -> ThreadingHTTPServer:
-    """A demo server on 127.0.0.1. secure=True wraps it in TLS with the
-    given self-signed cert/key."""
-    handler = type("Handler", (DemoHandler,), {"secure": secure})
+    """A demo server on 127.0.0.1. variant is 'vulnerable' (HTTP),
+    'secure' (HTTPS, hardened) or 'mixed' (HTTPS, hardened except for
+    mixed content + an open redirect). HTTPS variants need a self-signed
+    cert/key."""
+    handler = type("Handler", (DemoHandler,), {"variant": variant})
     server = ThreadingHTTPServer(("127.0.0.1", port), handler)
-    if secure:
+    if variant in ("secure", "mixed"):
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(certfile, keyfile)
         server.socket = ctx.wrap_socket(server.socket, server_side=True)
     return server
 
 
-def serve_both(tmpdir: str | None = None):
-    """Start the vulnerable (HTTP) and secure (HTTPS) demo servers and
-    return (vuln_url, secure_url, stop). Used by demo.py and tests."""
+def serve_all(tmpdir: str | None = None):
+    """Start the vulnerable (HTTP), secure (HTTPS) and mixed (HTTPS)
+    demo servers and return (vuln_url, secure_url, mixed_url, stop)."""
     tmp = Path(tmpdir) if tmpdir else Path(tempfile.mkdtemp())
     cert, key = generate_self_signed_cert(tmp)
-    vuln = make_server(0, secure=False)
-    secure = make_server(0, secure=True, certfile=str(cert),
+    vuln = make_server(0, variant="vulnerable")
+    secure = make_server(0, variant="secure", certfile=str(cert),
                          keyfile=str(key))
+    mixed = make_server(0, variant="mixed", certfile=str(cert),
+                        keyfile=str(key))
     import threading
-    threads = []
-    for srv in (vuln, secure):
+    for srv in (vuln, secure, mixed):
         t = threading.Thread(target=srv.serve_forever, daemon=True)
         t.start()
-        threads.append(t)
     vuln_url = f"http://127.0.0.1:{vuln.server_address[1]}/"
     secure_url = (f"https://127.0.0.1:{secure.server_address[1]}/secure/"
                   f"?q=test")
+    mixed_url = f"https://127.0.0.1:{mixed.server_address[1]}/mixed/"
 
     def stop():
-        vuln.shutdown()
-        secure.shutdown()
-        vuln.server_close()
-        secure.server_close()
+        for srv in (vuln, secure, mixed):
+            srv.shutdown()
+            srv.server_close()
 
+    return vuln_url, secure_url, mixed_url, stop
+
+
+def serve_both(tmpdir: str | None = None):
+    """Backwards-compatible wrapper: only the vulnerable + secure URLs."""
+    vuln_url, secure_url, _mixed_url, stop = serve_all(tmpdir)
     return vuln_url, secure_url, stop
 
 
 if __name__ == "__main__":
-    vuln_url, secure_url, stop = serve_both()
+    vuln_url, secure_url, mixed_url, stop = serve_all()
     print("Vulnerable:", vuln_url)
     print("Secure:    ", secure_url)
+    print("Mixed:     ", mixed_url)
     print("Press Ctrl-C to stop.")
     try:
         import time

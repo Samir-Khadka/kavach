@@ -35,7 +35,17 @@ SENSITIVE_FILES = (
     ("backup.zip", "backup_file_exposed"),
     ("db.sql", "backup_file_exposed"),
     ("config.php.bak", "backup_file_exposed"),
+    (".DS_Store", "ds_store_exposed"),
+    ("wp-config.php", "wp_config_exposed"),
 )
+
+# Subresource tags loading an http:// URL on an HTTPS page.
+MIXED_CONTENT_RE = re.compile(
+    r"<(?:script|img|iframe|link|video|audio|source|embed|object)\b"
+    r"[^>]*(?:src|href|data)\s*=\s*[\"'](http://[^\"']+)",
+    re.IGNORECASE)
+CSS_URL_RE = re.compile(r"url\(\s*[\"']?(http://[^\"')]+)",
+                        re.IGNORECASE)
 
 SENSITIVE_ROBOTS_PATHS = ("/admin", "/backup", "/config", "/.git",
                           "/private", "/db", "/wp-admin")
@@ -97,7 +107,7 @@ def check_transport(url: str, base: Response, lang: str,
             "TLS version were not verified.",
             "Check the network and scan again."))
         return out
-    if info["error"]:
+    if info["kind"] == "cert":
         out.append(_finding(
             "cert_invalid", "high", A02, lang,
             "Certificate invalid",
@@ -106,8 +116,23 @@ def check_transport(url: str, base: Response, lang: str,
             "Install a valid certificate (Let's Encrypt is free) and "
             "renew it before it expires.",
             details={"error": info["error"]}, error=info["error"]))
-    elif info["version"] and info["version"] in ("TLSv1", "TLSv1.1",
-                                                 "SSLv3"):
+        return out
+    if info["kind"] == "handshake":
+        # The handshake itself failed — a proxy, a reset connection, a
+        # server that cannot speak TLS. That is not a certificate
+        # problem, so report it as an unverified check, not a finding
+        # about the certificate.
+        out.append(_finding(
+            "tls_check_failed", "info", A02, lang,
+            "TLS check failed (handshake)",
+            "The TLS handshake did not complete, so the certificate and "
+            "TLS version were not verified.",
+            "Check the network and scan again.",
+            evidence=info["error"],
+            details={"error": info["error"]}))
+        return out
+    if info["version"] and info["version"] in ("TLSv1", "TLSv1.1",
+                                               "SSLv3"):
         out.append(_finding(
             "tls_old", "high", A02, lang,
             "Old TLS version",
@@ -319,6 +344,12 @@ def check_sensitive_files(base_url: str, lang: str,
                                      r.body, re.IGNORECASE))
         elif path == "config.php.bak":
             exposed = b"<?php" in r.body or _looks_like_env(r.body)
+        elif path == ".DS_Store":
+            exposed = r.body[:8] == b"\x00\x00\x00\x01Bud1"
+        elif path == "wp-config.php":
+            exposed = (b"DB_PASSWORD" in r.body
+                       or b"define('DB_" in r.body
+                       or b'define("DB_' in r.body)
         if not exposed:
             continue
         if rule == "git_exposed":
@@ -336,6 +367,22 @@ def check_sensitive_files(base_url: str, lang: str,
                 "Block /.env on the web server and change every password "
                 "and key inside it at once.",
                 evidence=path))
+        elif rule == "ds_store_exposed":
+            out.append(_finding(
+                "ds_store_exposed", "low", A05, lang, ".DS_Store exposed",
+                "/.DS_Store is publicly accessible — it reveals the "
+                "names of files in the folder.",
+                "Block /.DS_Store on the web server or do not deploy it.",
+                evidence=path))
+        elif rule == "wp_config_exposed":
+            out.append(_finding(
+                "wp_config_exposed", "critical", A05, lang,
+                "wp-config.php exposed",
+                "wp-config.php is publicly accessible — it may hold the "
+                "database password. Change it at once.",
+                "Block wp-config.php on the web server and change the "
+                "database password inside it at once.",
+                evidence=path))
         else:
             out.append(_finding(
                 "backup_file_exposed", "high", A01, lang,
@@ -350,13 +397,18 @@ def check_sensitive_files(base_url: str, lang: str,
 
 # --- safe probes ----------------------------------------------------------
 
-def _probe_url(base_url: str, param_value: str) -> str:
-    """Build a probe URL: reuse the first existing query param, else add
+def _probe_url(base_url: str, param_value: str,
+               param: str | None = None) -> str:
+    """Build a probe URL. With param given, set (or add) that named
+    parameter; otherwise reuse the first existing query param, else add
     one. The probe value is inert — a quote for SQL errors, a marker tag
-    for reflection."""
+    for reflection, a benign external URL for open redirects."""
     parts = urlsplit(base_url)
     params = parse_qsl(parts.query, keep_blank_values=True)
-    if params:
+    if param:
+        params = [(k, v) for k, v in params if k != param]
+        params.append((param, param_value))
+    elif params:
         key = params[0][0]
         params[0] = (key, param_value)
     else:
@@ -420,3 +472,65 @@ def check_robots(base_url: str, lang: str,
         "Do not list sensitive paths in robots.txt; protect them with "
         "access control, not robots.txt.",
         details={"paths": found}, paths=", ".join(found))]
+
+
+# --- new in v0.2 ----------------------------------------------------------
+
+def check_mixed_content(base: Response, lang: str) -> list[Finding]:
+    """Only meaningful on HTTPS: subresources loaded over plain HTTP
+    can be read and modified. Free — it reuses the base page's HTML."""
+    if urlsplit(base.final_url).scheme != "https":
+        return []
+    found = MIXED_CONTENT_RE.findall(base.text)
+    found += CSS_URL_RE.findall(base.text)
+    if not found:
+        return []
+    examples = ", ".join(sorted(set(found))[:3])
+    return [_finding(
+        "mixed_content", "medium", A02, lang,
+        "Mixed content on HTTPS page",
+        f"The HTTPS page loads {len(found)} resource(s) over HTTP "
+        f"({examples}) — those resources can be read and modified.",
+        "Load every resource (scripts, images, styles) over HTTPS.",
+        evidence=examples,
+        details={"count": len(found), "examples": examples},
+        count=len(found), examples=examples)]
+
+
+def check_open_redirect(base_url: str, lang: str,
+                        verify_tls: bool = True) -> list[Finding]:
+    """One safe probe: ask the site to redirect to example.com (a benign
+    public test domain). If the fetch ends on a different host, the site
+    follows a caller-supplied redirect target."""
+    probe = _probe_url(base_url, "https://example.com", param="next")
+    r = fetch(probe, verify_tls=verify_tls)
+    if r.status is None:
+        return []
+    final_host = urlsplit(r.final_url).netloc
+    if final_host and final_host != urlsplit(base_url).netloc:
+        return [_finding(
+            "open_redirect", "high", A01, lang,
+            "Possible open redirect",
+            f"The site redirected a caller-supplied address ({r.final_url}) "
+            "— an attacker can send users to a fake site.",
+            "Do not accept external addresses in redirect parameters — "
+            "allow only a list of permitted addresses.",
+            evidence=probe,
+            details={"target": r.final_url}, target=r.final_url)]
+    return []
+
+
+def check_security_txt(base_url: str, lang: str,
+                       verify_tls: bool = True) -> list[Finding]:
+    """RFC 9116: a security.txt gives researchers a contact point. Its
+    absence is an info nudge, not a penalty."""
+    r = fetch(urljoin(base_url, "/.well-known/security.txt"),
+              verify_tls=verify_tls)
+    if r.status == 200 and "Contact:" in r.text:
+        return []
+    return [_finding(
+        "missing_security_txt", "info", A05, lang,
+        "No security.txt",
+        "No security.txt — someone who finds a security problem has no "
+        "contact address to report it to.",
+        "Add a Contact: address in /.well-known/security.txt (RFC 9116).")]
