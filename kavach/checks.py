@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
-from .http import Response, fetch, host_port, tls_info
+from .http import Response, Session, fetch, host_port, tls_info
 from .model import Finding
 from .ne import FIX_NE, MESSAGE_NE
 
@@ -332,10 +332,12 @@ def _looks_like_env(body: bytes) -> bool:
 
 
 def check_sensitive_files(base_url: str, lang: str,
-                          verify_tls: bool = True) -> list[Finding]:
+                          verify_tls: bool = True,
+                          session: Session | None = None) -> list[Finding]:
     out: list[Finding] = []
     for path, rule in SENSITIVE_FILES:
-        r = fetch(urljoin(base_url, "/" + path), verify_tls=verify_tls)
+        r = fetch(urljoin(base_url, "/" + path), verify_tls=verify_tls,
+                  session=session)
         if r.status != 200 or not r.body:
             continue
         exposed = False
@@ -426,9 +428,10 @@ def _probe_url(base_url: str, param_value: str,
 
 
 def check_sqli(base_url: str, lang: str,
-               verify_tls: bool = True) -> list[Finding]:
+               verify_tls: bool = True,
+               session: Session | None = None) -> list[Finding]:
     probe = _probe_url(base_url, "1'")
-    r = fetch(probe, verify_tls=verify_tls)
+    r = fetch(probe, verify_tls=verify_tls, session=session)
     if r.status is None:
         return []
     for sign in SQL_ERROR_SIGNS:
@@ -445,9 +448,10 @@ def check_sqli(base_url: str, lang: str,
 
 
 def check_xss(base_url: str, lang: str,
-              verify_tls: bool = True) -> list[Finding]:
+              verify_tls: bool = True,
+              session: Session | None = None) -> list[Finding]:
     probe = _probe_url(base_url, XSS_MARKER)
-    r = fetch(probe, verify_tls=verify_tls)
+    r = fetch(probe, verify_tls=verify_tls, session=session)
     if r.status is None:
         return []
     if XSS_MARKER in r.text:
@@ -464,8 +468,10 @@ def check_xss(base_url: str, lang: str,
 
 
 def check_robots(base_url: str, lang: str,
-                 verify_tls: bool = True) -> list[Finding]:
-    r = fetch(urljoin(base_url, "/robots.txt"), verify_tls=verify_tls)
+                 verify_tls: bool = True,
+                 session: Session | None = None) -> list[Finding]:
+    r = fetch(urljoin(base_url, "/robots.txt"), verify_tls=verify_tls,
+              session=session)
     if r.status != 200:
         return []
     found = sorted({p for p in SENSITIVE_ROBOTS_PATHS
@@ -506,12 +512,13 @@ def check_mixed_content(base: Response, lang: str) -> list[Finding]:
 
 
 def check_open_redirect(base_url: str, lang: str,
-                        verify_tls: bool = True) -> list[Finding]:
+                        verify_tls: bool = True,
+                        session: Session | None = None) -> list[Finding]:
     """One safe probe: ask the site to redirect to example.com (a benign
     public test domain). If the fetch ends on a different host, the site
     follows a caller-supplied redirect target."""
     probe = _probe_url(base_url, "https://example.com", param="next")
-    r = fetch(probe, verify_tls=verify_tls)
+    r = fetch(probe, verify_tls=verify_tls, session=session)
     if r.status is None:
         return []
     final_host = urlsplit(r.final_url).netloc
@@ -529,11 +536,12 @@ def check_open_redirect(base_url: str, lang: str,
 
 
 def check_security_txt(base_url: str, lang: str,
-                       verify_tls: bool = True) -> list[Finding]:
+                       verify_tls: bool = True,
+                       session: Session | None = None) -> list[Finding]:
     """RFC 9116: a security.txt gives researchers a contact point. Its
     absence is an info nudge, not a penalty."""
     r = fetch(urljoin(base_url, "/.well-known/security.txt"),
-              verify_tls=verify_tls)
+              verify_tls=verify_tls, session=session)
     if r.status == 200 and "Contact:" in r.text:
         return []
     return [_finding(

@@ -64,6 +64,28 @@ def test_cli_html_and_badge(demo, tmp_path):
     assert badge_path.read_text().startswith("<svg")
 
 
+def test_cli_auth_scans_behind_login(demo, capsys):
+    vuln_url, _, _ = demo
+    assert main([vuln_url + "dashboard", "--auth-url",
+                 vuln_url + "login", "--auth-user", "demo",
+                 "--auth-pass", "demo123", "--auth-check",
+                 "Welcome, demo"]) == 2
+    assert "Grade F" in capsys.readouterr().out
+
+
+def test_cli_auth_wrong_password_exits_3(demo):
+    vuln_url, _, _ = demo
+    assert main([vuln_url + "dashboard", "--auth-url",
+                 vuln_url + "login", "--auth-user", "demo",
+                 "--auth-pass", "wrong"]) == 3
+
+
+def test_cli_auth_missing_password_exits_3(demo):
+    vuln_url, _, _ = demo
+    assert main([vuln_url + "dashboard", "--auth-url",
+                 vuln_url + "login", "--auth-user", "demo"]) == 3
+
+
 def test_cli_module_entrypoint(demo):
     vuln_url, _, _ = demo
     proc = subprocess.run([sys.executable, "-m", "kavach", vuln_url],

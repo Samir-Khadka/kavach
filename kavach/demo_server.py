@@ -1,12 +1,15 @@
-"""A deliberately insecure demo site, in two variants, for Kavach.
+"""A deliberately insecure demo site, in three variants, for Kavach.
 
 - vulnerable: plain HTTP, no security headers, Server/X-Powered-By
   disclosure, CORS *, cookies without flags, /.git/HEAD and /.env
   exposed, a reflective ?q= parameter, a ?id= parameter that answers
   a quote with a database error, robots.txt listing /admin/ and /backup/.
+  Has a login form (demo/demo123) that sets a session cookie and
+  opens /dashboard — the authenticated area.
 - secure: HTTPS (self-signed cert, generated on the fly), every good
   header, flagged cookies, 404s for the sensitive files, escaped
   reflection, no SQL error, clean robots.txt.
+- mixed: HTTPS, hardened except for mixed content + an open redirect.
 
 Used by demo.py and by the test suite. NEVER point this at the public
 internet — it is a local teaching target only.
@@ -20,6 +23,11 @@ import tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
+
+DEMO_USER = "demo"
+DEMO_PASS = "demo123"
+SESSION_COOKIE = "session=authenticated"
+CSRF_TOKEN = "demo-csrf-token"
 
 VULN_HEADERS = [
     ("Server", "Apache/2.4.49 (Ubuntu)"),
@@ -104,6 +112,44 @@ class DemoHandler(BaseHTTPRequestHandler):
     def do_HEAD(self):
         self._handle()
 
+    def do_POST(self):
+        self._handle_post()
+
+    def _is_authenticated(self) -> bool:
+        cookie = self.headers.get("Cookie") or ""
+        return SESSION_COOKIE in cookie
+
+    def _handle_post(self):
+        """POST /login: the demo login. demo/demo123 sets the session
+        cookie and redirects to /dashboard; anything else gets the
+        login page back with an error."""
+        parts = urlsplit(self.path)
+        if parts.path != "/login":
+            self._send(404, b"Not found", VULN_HEADERS)
+            return
+        length = int(self.headers.get("Content-Length") or 0)
+        body = self.rfile.read(length).decode("utf-8", errors="replace")
+        params = dict(parse_qsl(body, keep_blank_values=True))
+        if params.get("username") == DEMO_USER and \
+                params.get("password") == DEMO_PASS:
+            self.send_response(302)
+            self.send_header("Location", "/dashboard")
+            self.send_header("Set-Cookie", SESSION_COOKIE)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        html_body = ("<html><body><h1>Login</h1>"
+                     "<p>Invalid username or password.</p>"
+                     "<form method=\"post\" action=\"/login\">"
+                     "<input name=\"username\">"
+                     "<input type=\"password\" name=\"password\">"
+                     f"<input type=\"hidden\" name=\"csrf\" "
+                     f"value=\"{CSRF_TOKEN}\">"
+                     "<input type=\"submit\" value=\"Log in\"></form>"
+                     "</body></html>")
+        self._send(200, html_body.encode(), VULN_HEADERS)
+        return
+
     def _handle(self):
         parts = urlsplit(self.path)
         path = parts.path
@@ -169,6 +215,45 @@ class DemoHandler(BaseHTTPRequestHandler):
                 self._send(404, b"Not found", headers)
             return
 
+        # /dashboard: the authenticated area. Without the session
+        # cookie it redirects to /login; with it, it is a vulnerable
+        # page (reflects input, answers a quote with a database error)
+        # that links to /dashboard/settings.
+        if path in ("/dashboard", "/dashboard/settings"):
+            if not self._is_authenticated():
+                self.send_response(302)
+                self.send_header("Location", "/login")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            params_list = parse_qsl(parts.query, keep_blank_values=True)
+            ident = params.get("id")
+            if variant == "vulnerable" and ident is not None \
+                    and "'" in ident:
+                body = ("<html><body><h1>Error</h1><p>You have an error "
+                        "in your SQL syntax near ''' at line 1</p>"
+                        "</body></html>")
+                self._send(200, body.encode(), headers)
+                return
+            reflected = ""
+            if params_list:
+                reflected = params_list[0][1]
+                if secure:
+                    reflected = html.escape(reflected)
+            if path == "/dashboard":
+                body = ("<html><body><h1>Dashboard</h1>"
+                        "<p>Welcome, demo</p>"
+                        f"<p>Search: {reflected}</p>"
+                        "<p><a href=\"/dashboard/settings\">Settings</a> "
+                        "<a href=\"/\">Home</a></p></body></html>")
+            else:
+                body = ("<html><body><h1>Settings</h1>"
+                        f"<p>Search: {reflected}</p>"
+                        "<p><a href=\"/dashboard\">Dashboard</a></p>"
+                        "</body></html>")
+            self._send(200, body.encode(), headers)
+            return
+
         # /about: same site, but this page DOES send X-Frame-Options —
         # so a crawl sees a page-specific difference. It mentions
         # MySQL and SQLite as text but never reflects input or returns
@@ -186,8 +271,8 @@ class DemoHandler(BaseHTTPRequestHandler):
                        about_headers + [("Set-Cookie", cookie)])
             return
 
-        # /login: a form page, same vulnerable headers as home.
-        # Reflects input and answers a quote with a database error.
+        # /login: a real login form (demo/demo123). Reflects input and
+        # answers a quote with a database error, like home.
         if path == "/login":
             params_list = parse_qsl(parts.query, keep_blank_values=True)
             ident = params.get("id")
@@ -206,8 +291,11 @@ class DemoHandler(BaseHTTPRequestHandler):
             body = ("<html><body><h1>Login</h1>"
                     f"<p>Search: {reflected}</p>"
                     "<form method=\"post\" action=\"/login\">"
-                    "<input name=\"user\"><input type=\"password\" "
-                    "name=\"pass\"></form>"
+                    "<input name=\"username\">"
+                    "<input type=\"password\" name=\"password\">"
+                    f"<input type=\"hidden\" name=\"csrf\" "
+                    f"value=\"{CSRF_TOKEN}\">"
+                    "<input type=\"submit\" value=\"Log in\"></form>"
                     "<p><a href=\"/\">Home</a></p></body></html>")
             self._send(200, body.encode(),
                        headers + [("Set-Cookie", cookie)])

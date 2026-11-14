@@ -10,11 +10,13 @@ import os
 import socket
 import ssl
 from dataclasses import dataclass, field
+from http.cookiejar import CookieJar
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import HTTPSHandler, Request, build_opener
+from urllib.request import (HTTPCookieProcessor, HTTPSHandler, Request,
+                            build_opener)
 
-USER_AGENT = ("Kavach/0.1 (web security scanner; only scan sites you own "
+USER_AGENT = ("Kavach/0.4 (web security scanner; only scan sites you own "
               "or have explicit permission to test)")
 TIMEOUT = 5
 
@@ -61,18 +63,50 @@ class Response:
         return out
 
 
+class Session:
+    """A persistent cookie session: every fetch through it sends the
+    cookies the site set earlier (a login session). One Session = one
+    login; build it with kavach.auth.login()."""
+
+    def __init__(self, verify_tls: bool = True) -> None:
+        self.jar = CookieJar()
+        self.verify_tls = verify_tls
+        self.opener = build_opener(HTTPCookieProcessor(self.jar))
+        if not verify_tls:
+            ctx = ssl._create_unverified_context()
+            self.opener = build_opener(HTTPCookieProcessor(self.jar),
+                                       HTTPSHandler(context=ctx))
+
+    @property
+    def cookie_count(self) -> int:
+        return len(self.jar)
+
+    def cookie_header(self, url: str) -> str:
+        """The Cookie header this session would send for a URL."""
+        req = Request(url)
+        self.jar.add_cookie_header(req)
+        return req.get_header("Cookie") or ""
+
+
 def fetch(url: str, timeout: int = TIMEOUT,
-          verify_tls: bool = True) -> Response:
-    """One GET. Never raises for HTTP errors — they are data (a 404 on
-    /.git/HEAD is a good sign). Network failures come back as status None
-    with an error string. verify_tls=False skips certificate verification
-    (test environments only — the default verifies)."""
-    req = Request(url, headers={"User-Agent": USER_AGENT,
-                                "Accept": "*/*"})
-    opener = build_opener()
-    if not verify_tls:
-        ctx = ssl._create_unverified_context()
-        opener = build_opener(HTTPSHandler(context=ctx))
+          verify_tls: bool = True, session: Session | None = None,
+          method: str = "GET", data: bytes | None = None,
+          extra_headers: dict | None = None) -> Response:
+    """One request (GET by default, POST with data). Never raises for
+    HTTP errors — they are data (a 404 on /.git/HEAD is a good sign).
+    Network failures come back as status None with an error string.
+    verify_tls=False skips certificate verification (test environments
+    only — the default verifies). A Session carries the login cookies."""
+    headers = {"User-Agent": USER_AGENT, "Accept": "*/*"}
+    headers.update(extra_headers or {})
+    req = Request(url, data=data, headers=headers, method=method)
+    if session is not None:
+        opener = session.opener
+    else:
+        opener = build_opener()
+        if not verify_tls:
+            ctx = ssl._create_unverified_context()
+            opener = build_opener(HTTPSHandler(context=ctx))
     try:
         with opener.open(req, timeout=timeout) as r:
             return Response(url=url, final_url=r.geturl(),

@@ -1,14 +1,16 @@
 """CLI: python -m kavach <url> [--lang ne] [--json] [--output report.json]
 
 Exit codes: 0 = grade A or B, 1 = grade C or D, 2 = grade F,
-3 = scan failed (unreachable / bad URL).
+3 = scan failed (unreachable / bad URL / login failed).
 Only scan sites you own or have explicit permission to test.
 """
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
+from .auth import AuthError, login
 from .report import badge_svg, to_html, to_json, to_text
 from .scanner import scan
 
@@ -32,14 +34,43 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--delay", type=float, default=0.2,
                         help="seconds between page fetches while crawling "
                              "(default 0.2)")
+    parser.add_argument("--auth-url",
+                        help="login page URL — scan behind a login")
+    parser.add_argument("--auth-user", help="login username")
+    parser.add_argument("--auth-pass",
+                        help="login password (or set KAVACH_AUTH_PASS)")
+    parser.add_argument("--auth-user-field",
+                        help="username input name (auto-detected by default)")
+    parser.add_argument("--auth-pass-field",
+                        help="password input name (auto-detected by default)")
+    parser.add_argument("--auth-check",
+                        help="text that must appear after login "
+                             "(proves the login worked)")
     parser.add_argument("--insecure", action="store_true",
                         help="skip TLS certificate verification "
                              "(test environments only)")
     args = parser.parse_args(argv)
+    session = None
+    if args.auth_url:
+        password = args.auth_pass or os.environ.get("KAVACH_AUTH_PASS")
+        if not args.auth_user or not password:
+            print("kavach: --auth-url needs --auth-user and --auth-pass "
+                  "(or KAVACH_AUTH_PASS)", file=sys.stderr)
+            return 3
+        try:
+            session, _ = login(args.auth_url, args.auth_user, password,
+                               user_field=args.auth_user_field,
+                               password_field=args.auth_pass_field,
+                               auth_check=args.auth_check,
+                               verify_tls=not args.insecure)
+        except AuthError as e:
+            print(f"kavach: login failed — {e}", file=sys.stderr)
+            return 3
     try:
         result = scan(args.url, lang=args.lang,
                       verify_tls=not args.insecure,
-                      max_pages=args.max_pages, delay=args.delay)
+                      max_pages=args.max_pages, delay=args.delay,
+                      session=session)
     except ValueError as e:
         print(f"kavach: {e}", file=sys.stderr)
         return 3

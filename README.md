@@ -36,8 +36,11 @@ python -m kavach https://example.com
 python -m kavach https://example.com --lang ne --json --output report.json
 python -m kavach https://example.com --html report.html --badge grade.svg
 python -m kavach https://example.com --max-pages 5   # crawl up to 5 pages
+python -m kavach https://example.com/dashboard \
+  --auth-url https://example.com/login --auth-user demo \
+  --auth-pass demo123 --auth-check "Welcome"   # scan behind a login
 
-# exit codes: 0 = A/B, 1 = C/D, 2 = F, 3 = bad URL / scan failed
+# exit codes: 0 = A/B, 1 = C/D, 2 = F, 3 = bad URL / scan failed / login failed
 # --insecure skips TLS certificate verification (test environments only)
 
 # API (needs fastapi + uvicorn)
@@ -52,9 +55,25 @@ curl -X POST localhost:8000/scan -H 'Content-Type: application/json' \
 `python demo.py` scans three local sites: a deliberately vulnerable one
 (grade F, 25 findings), the same site hardened (grade A, no findings),
 and a mixed one — HTTPS and hardened except for mixed content and an
-open redirect (grade C) — then crawls the vulnerable site (3 pages, 52
-findings) and repeats the single-page scan in Nepali. The demo server
-is local only — never point it at the public internet.
+open redirect (grade C) — then crawls the vulnerable site (3 pages),
+scans its authenticated dashboard (demo/demo123, 2 pages), and repeats
+the single-page scan in Nepali. The demo server is local only — never
+point it at the public internet.
+
+## Authenticated scanning
+
+Most real apps hide their interesting pages behind a login. With
+`--auth-url` Kavach logs in through the site's own form — it finds the
+form with the password field, keeps its hidden fields (CSRF tokens),
+fills in the username and password, and scans with the session cookies
+it gets back. `--auth-check` is a string that must appear after login
+(a dashboard heading, a "Welcome" line) and proves the login worked.
+When the login does not visibly succeed, Kavach stops with an error
+instead of scanning unauthenticated and reporting a false grade.
+Field names are auto-detected (username/email/login, password) or set
+explicitly with `--auth-user-field` / `--auth-pass-field`. Put the
+password in `KAVACH_AUTH_PASS` so it never lands in shell history.
+The API takes the same credentials in an `auth` object on `POST /scan`.
 
 ## Crawling
 

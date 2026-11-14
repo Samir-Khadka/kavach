@@ -22,7 +22,7 @@ from urllib.parse import urlsplit
 
 from . import checks
 from .crawl import extract_links
-from .http import Response, fetch
+from .http import Response, Session, fetch
 from .model import DEDUCTIONS, Finding, ScanResult
 from .ne import DISCLAIMER_NE
 
@@ -81,7 +81,8 @@ def _tag(findings: list[Finding], page: str) -> list[Finding]:
 
 
 def _page_checks(base: Response, lang: str,
-                 verify_tls: bool) -> list[Finding]:
+                 verify_tls: bool,
+                 session: Session | None = None) -> list[Finding]:
     """The per-page suite, run on one already-fetched response:
     headers, cookies, mixed content, and the three probes."""
     findings: list[Finding] = []
@@ -89,21 +90,25 @@ def _page_checks(base: Response, lang: str,
     findings += checks.check_cookies(base, lang)
     findings += checks.check_mixed_content(base, lang)
     findings += checks.check_sqli(base.final_url, lang,
-                                  verify_tls=verify_tls)
+                                  verify_tls=verify_tls, session=session)
     findings += checks.check_xss(base.final_url, lang,
-                                 verify_tls=verify_tls)
+                                 verify_tls=verify_tls, session=session)
     findings += checks.check_open_redirect(base.final_url, lang,
-                                           verify_tls=verify_tls)
+                                           verify_tls=verify_tls,
+                                           session=session)
     return findings
 
 
 def scan(url: str, lang: str = "en", verify_tls: bool = True,
          max_pages: int = DEFAULT_MAX_PAGES,
-         delay: float = DEFAULT_DELAY) -> ScanResult:
+         delay: float = DEFAULT_DELAY,
+         session: Session | None = None) -> ScanResult:
     """Scan one URL (max_pages=1), or crawl up to max_pages same-origin
     pages. Never raises for a bad target — an unreachable site comes
     back as a result with one critical finding. verify_tls=False skips
-    certificate verification (test environments only)."""
+    certificate verification (test environments only). A Session (from
+    kavach.auth.login) scans behind a login; without one the scan is
+    unauthenticated."""
     if lang not in ("en", "ne"):
         raise ValueError("lang must be 'en' or 'ne'")
     if max_pages < 1 or max_pages > MAX_PAGES_LIMIT:
@@ -113,7 +118,7 @@ def scan(url: str, lang: str = "en", verify_tls: bool = True,
     requests = 0
     disclaimer = DISCLAIMER_NE if lang == "ne" else DISCLAIMER_EN
 
-    seed = fetch(target, verify_tls=verify_tls)
+    seed = fetch(target, verify_tls=verify_tls, session=session)
     requests += 1
     if seed.status is None:
         finding = checks._finding(
@@ -135,15 +140,18 @@ def scan(url: str, lang: str = "en", verify_tls: bool = True,
                                             verify_tls=verify_tls),
                      seed.final_url)
     findings += _tag(checks.check_sensitive_files(seed.final_url, lang,
-                                                  verify_tls=verify_tls),
+                                                  verify_tls=verify_tls,
+                                                  session=session),
                      seed.final_url)
     requests += 8
     findings += _tag(checks.check_robots(seed.final_url, lang,
-                                         verify_tls=verify_tls),
+                                         verify_tls=verify_tls,
+                                         session=session),
                      seed.final_url)
     requests += 1
     findings += _tag(checks.check_security_txt(seed.final_url, lang,
-                                               verify_tls=verify_tls),
+                                               verify_tls=verify_tls,
+                                               session=session),
                      seed.final_url)
     requests += 1
 
@@ -155,16 +163,19 @@ def scan(url: str, lang: str = "en", verify_tls: bool = True,
         page_url = queue.pop(0)
         if page_url == seed.final_url:
             base = seed
-            page_findings = _page_checks(base, lang, verify_tls)
+            page_findings = _page_checks(base, lang, verify_tls,
+                                         session=session)
             requests += 3  # the three probes (the fetch is counted above)
         else:
             if delay:
                 time.sleep(delay)
-            base = fetch(page_url, verify_tls=verify_tls)
+            base = fetch(page_url, verify_tls=verify_tls,
+                         session=session)
             requests += MAX_REQUESTS_PER_PAGE
             if base.status is None:
                 continue
-            page_findings = _page_checks(base, lang, verify_tls)
+            page_findings = _page_checks(base, lang, verify_tls,
+                                         session=session)
         pages.append(page_url)
         findings += _tag(page_findings, page_url)
         if max_pages > 1 and len(pages) < max_pages:
