@@ -77,6 +77,16 @@ explicitly with `--auth-user-field` / `--auth-pass-field`. Put the
 password in `KAVACH_AUTH_PASS` so it never lands in shell history.
 The API takes the same credentials in an `auth` object on `POST /scan`.
 
+## Scan history
+
+Every scan is remembered in `~/.kavach/history` (one file per URL),
+and the next scan of the same URL reports what changed: new findings,
+fixed findings, and the grade and score change. That is the point of
+re-scanning — you fix a header, run Kavach again, and see the finding
+disappear from the list. `--no-history` skips it; `--history-dir`
+points it somewhere else. The diff is in the text, JSON and HTML
+reports alike.
+
 ## Crawling
 
 By default Kavach scans one page. With `--max-pages N` it follows

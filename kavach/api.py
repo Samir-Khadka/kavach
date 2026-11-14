@@ -12,7 +12,7 @@ from .auth import AuthError, login
 from .report import to_dict
 from .scanner import scan
 
-app = FastAPI(title="Kavach", version="0.5.0",
+app = FastAPI(title="Kavach", version="0.6.0",
               description="Web security scanner — only scan sites you own "
                           "or have explicit permission to test.")
 
@@ -31,6 +31,7 @@ class ScanRequest(BaseModel):
     lang: str = Field("en", pattern="^(en|ne)$")
     max_pages: int = Field(1, ge=1, le=20)
     auth: AuthRequest | None = None
+    history_dir: str | None = None
 
 
 class ScanResponse(BaseModel):
@@ -64,4 +65,5 @@ def scan_endpoint(req: ScanRequest) -> dict:
         except AuthError as e:
             raise HTTPException(status_code=401, detail=f"login failed: {e}")
     return to_dict(scan(req.url, lang=req.lang,
-                       max_pages=req.max_pages, session=session))
+                       max_pages=req.max_pages, session=session,
+                       history_dir=req.history_dir))

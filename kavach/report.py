@@ -7,6 +7,24 @@ from .model import ScanResult
 
 
 def to_dict(result: ScanResult) -> dict:
+    diff = None
+    if result.diff is not None:
+        d = result.diff
+        diff = {
+            "previous_at": d.previous_at,
+            "previous_grade": d.previous_grade,
+            "previous_score": d.previous_score,
+            "score_change": d.score_change,
+            "grade_change": d.grade_change,
+            "new_findings": [
+                {"rule": f.rule, "severity": f.severity,
+                 "title": f.title, "page": f.page}
+                for f in d.new_findings],
+            "fixed_findings": [
+                {"rule": f.rule, "severity": f.severity,
+                 "title": f.title, "page": f.page}
+                for f in d.fixed_findings],
+        }
     return {
         "url": result.url,
         "final_url": result.final_url,
@@ -16,6 +34,7 @@ def to_dict(result: ScanResult) -> dict:
         "duration_s": result.duration_s,
         "pages": result.pages,
         "form_pages": result.form_pages,
+        "diff": diff,
         "counts": result.counts,
         "findings": [
             {"rule": f.rule, "severity": f.severity, "title": f.title,
@@ -41,6 +60,28 @@ def to_text(result: ScanResult) -> str:
     counts_text = ", ".join(
         f"{n} {s}" for s, n in counts.items() if n) or "none"
     lines.append("Findings: " + counts_text)
+    if result.diff is not None:
+        d = result.diff
+        lines.append("")
+        lines.append(f"Changes since last scan ({d.previous_at or 'unknown time'}):")
+        change = d.grade_change or f"grade {d.previous_grade}"
+        sign = "+" if d.score_change >= 0 else ""
+        lines.append(f"  Score {d.previous_score} → {result.score} "
+                     f"({sign}{d.score_change}), {change}")
+        if d.new_findings:
+            lines.append(f"  New: {len(d.new_findings)} finding(s)")
+            for f in d.new_findings:
+                page_note = f" on {f.page}" if f.page else ""
+                lines.append(f"    + [{f.severity}] {f.title} "
+                             f"({f.rule}){page_note}")
+        if d.fixed_findings:
+            lines.append(f"  Fixed: {len(d.fixed_findings)} finding(s)")
+            for f in d.fixed_findings:
+                page_note = f" on {f.page}" if f.page else ""
+                lines.append(f"    - [{f.severity}] {f.title} "
+                             f"({f.rule}){page_note}")
+        if not d.has_changes:
+            lines.append("  No changes.")
     for f in result.findings:
         lines.append("")
         page_note = f" on {f.page}" if len(result.pages) > 1 and f.page \
@@ -87,6 +128,28 @@ def badge_svg(grade: str) -> str:
 def to_html(result: ScanResult) -> str:
     """A self-contained HTML report (inline CSS, no external files)."""
     color = GRADE_COLORS[result.grade]
+    diff_html = ""
+    if result.diff is not None:
+        d = result.diff
+        sign = "+" if d.score_change >= 0 else ""
+        change = d.grade_change or f"grade {d.previous_grade}"
+        items = []
+        for f in d.new_findings:
+            page_note = (f' on <code>{f.page}</code>' if f.page else '')
+            items.append(f'<li class="new">+ [{f.severity}] {f.title} '
+                         f'<code>{f.rule}</code>{page_note}</li>')
+        for f in d.fixed_findings:
+            page_note = (f' on <code>{f.page}</code>' if f.page else '')
+            items.append(f'<li class="fixed">− [{f.severity}] {f.title} '
+                         f'<code>{f.rule}</code>{page_note}</li>')
+        if not d.has_changes:
+            items.append('<li>No changes since the last scan.</li>')
+        diff_html = (
+            f'<section class="diff"><h2>Changes since last scan '
+            f'({d.previous_at or "unknown time"})</h2>'
+            f'<p>Score {d.previous_score} → {result.score} '
+            f'({sign}{d.score_change}), {change}</p>'
+            f'<ul>{"".join(items)}</ul></section>')
     rows = []
     order = ("critical", "high", "medium", "low", "info")
     for severity in order:
@@ -134,5 +197,6 @@ def to_html(result: ScanResult) -> str:
         + (f'<br>Pages scanned: {len(result.pages)}'
            if len(result.pages) > 1 else '')
         + '</span></div>'
+        + diff_html
         + "".join(rows) +
         f'<footer>{result.disclaimer}</footer></body></html>')

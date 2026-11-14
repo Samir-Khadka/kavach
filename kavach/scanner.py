@@ -103,13 +103,15 @@ def _page_checks(base: Response, lang: str,
 def scan(url: str, lang: str = "en", verify_tls: bool = True,
          max_pages: int = DEFAULT_MAX_PAGES,
          delay: float = DEFAULT_DELAY,
-         session: Session | None = None) -> ScanResult:
+         session: Session | None = None,
+         history_dir: str | None = None) -> ScanResult:
     """Scan one URL (max_pages=1), or crawl up to max_pages same-origin
     pages. Never raises for a bad target — an unreachable site comes
     back as a result with one critical finding. verify_tls=False skips
     certificate verification (test environments only). A Session (from
     kavach.auth.login) scans behind a login; without one the scan is
-    unauthenticated."""
+    unauthenticated. history_dir stores this scan and diffs it against
+    the previous one for the same URL (None disables history)."""
     if lang not in ("en", "ne"):
         raise ValueError("lang must be 'en' or 'ne'")
     if max_pages < 1 or max_pages > MAX_PAGES_LIMIT:
@@ -198,9 +200,16 @@ def scan(url: str, lang: str = "en", verify_tls: bool = True,
                     queue.append(link)
 
     score = score_findings(findings)
-    return ScanResult(url=target, final_url=seed.final_url,
-                      findings=findings, score=score,
-                      grade=grade_of(score), requests_made=requests,
-                      duration_s=round(time.monotonic() - started, 2),
-                      lang=lang, disclaimer=disclaimer,
-                      pages=pages, form_pages=form_pages)
+    result = ScanResult(url=target, final_url=seed.final_url,
+                        findings=findings, score=score,
+                        grade=grade_of(score), requests_made=requests,
+                        duration_s=round(time.monotonic() - started, 2),
+                        lang=lang, disclaimer=disclaimer,
+                        pages=pages, form_pages=form_pages)
+    if history_dir is not None:
+        from .history import diff_results, load_previous, save_scan
+        previous = load_previous(history_dir, target)
+        if previous is not None:
+            result.diff = diff_results(previous, result)
+        save_scan(history_dir, result)
+    return result

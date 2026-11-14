@@ -46,10 +46,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--auth-check",
                         help="text that must appear after login "
                              "(proves the login worked)")
+    parser.add_argument("--history-dir", default="~/.kavach/history",
+                        help="where to store scan history (default: "
+                             "~/.kavach/history)")
+    parser.add_argument("--no-history", action="store_true",
+                        help="do not store this scan or diff against "
+                             "a previous one")
     parser.add_argument("--insecure", action="store_true",
                         help="skip TLS certificate verification "
                              "(test environments only)")
     args = parser.parse_args(argv)
+    history_dir = None if args.no_history else \
+        os.path.expanduser(args.history_dir)
     session = None
     if args.auth_url:
         password = args.auth_pass or os.environ.get("KAVACH_AUTH_PASS")
@@ -70,7 +78,7 @@ def main(argv: list[str] | None = None) -> int:
         result = scan(args.url, lang=args.lang,
                       verify_tls=not args.insecure,
                       max_pages=args.max_pages, delay=args.delay,
-                      session=session)
+                      session=session, history_dir=history_dir)
     except ValueError as e:
         print(f"kavach: {e}", file=sys.stderr)
         return 3
